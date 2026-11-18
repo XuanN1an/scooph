@@ -122,13 +122,15 @@ scooph/
   engine/              Go 模块
     bucket/            git 同步与仓库布局
     manifest/          清单解析与校验
-    version/           版本比较
+    version/           版本比较与条目仲裁
     download/          HTTP 下载、断点、sha256
     api/               gomobile 暴露层（JSON 编解码）
-  schema/              JSON Schema 契约
+    testdata/          从 scooph-bucket 拷来的样例清单
   docs/specs/          设计文档
   Makefile             make check / make apk / make engine
 ```
+
+JSON Schema、校验器、PR 模板、CI 都在 `scooph-bucket`，不在这个仓库（见 §8.2）。`engine/testdata/` 里那份样例是拷贝，允许滞后于上游规范，它的作用是让 App 的解析器永远有一份已知良好的输入。
 
 ## 8. 两个仓库与 Bucket 契约
 
@@ -233,25 +235,24 @@ UNTRACKED                   用户显式停止跟踪（墓碑，永不被自动�
 
 显示状态由 `policy` + 生效条目 + 本机快照推导，纯函数 `derive(tracked, entry, installed)`：
 
+「版本关系」这个客观事实由 Go 侧的 `Plan()` 算出（新于 / 相同 / 旧于本机），Kotlin 只负责在用户策略下把它翻译成显示状态。Go 管事实，Kotlin 管态度，两边都不重复对方的判断。
+
 ```
-IGNORED      policy = UNTRACKED                    → 已忽略组
-SKIPPED      policy = SKIP_VERSION 且 entry.versionCode == skipVersionCode
-                                                   → 已忽略组
-UPDATABLE    entry.versionCode > installed.versionCode
-                                                   → 可更新组
-UP_TO_DATE   entry.versionCode == installed.versionCode
-                                                   → 已是最新组
-AHEAD        entry.versionCode < installed.versionCode
-                                                   → 已是最新组，行内标「本机版本更新」，无更新动作
-NO_SOURCE    没有生效条目                            → 不显示
-NOT_INSTALLED 本机未安装                             → 不显示，只在来源页出现
+① NO_SOURCE     没有生效条目                      → 不显示
+② NOT_INSTALLED 本机未安装                         → 不显示，只在条目页出现
+③ IGNORED       policy = UNTRACKED                → 已忽略组
+④ UP_TO_DATE    版本相同                            → 已是最新组
+⑤ AHEAD         条目版本低于本机                     → 已是最新组，标「本机版本更新」，无更新动作
+⑥ SKIPPED       policy = SKIP_VERSION 且条目版本 == skipVersionCode
+                                                  → 已忽略组
+⑦ UPDATABLE     其余                               → 可更新组
 ```
 
-三个边界情况按上面的顺序判定，前一条命中即返回：
+按序号判定，命中即返回。三条容易搞错的地方：
 
-- `SKIP_VERSION` 且 `entry.versionCode > skipVersionCode`：跳过的只是那一版，出了更新的版本就回到 **UPDATABLE**。更新成功后 `policy` 自动回到 `FOLLOW`。这就是「跳过这一版，等下一个」。
-- `AHEAD`：bucket 落后于本机（或用户从别的渠道装了更高版本）。这一档不提供更新，也不报错，因为这不是故障。
-- `lastError` 是覆盖层，不是独立状态：上面任何一个状态都可以带一条失败原因，显示在同一行，不改变分组。
+- **跳过只针对那一版**：⑥ 要求「版本完全相同」。一旦上游出了更高的版本，落到 ⑦，重新出现在可更新组。更新成功后 `policy` 自动回到 `FOLLOW`。
+- **本机版本更高不是故障**：⑤ 不报错、不提示异常，只是没有可更新动作。
+- **`lastError` 是覆盖层，不是状态**：上面任何一条都可以带一条失败原因，显示在同一行，不改变分组。
 
 `ERROR` 因此不是一个状态值，而是一个可选的附注字段。这样状态机是七个值的全函数，没有落空的输入。
 
