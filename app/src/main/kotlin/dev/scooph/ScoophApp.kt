@@ -8,6 +8,7 @@ import dev.scooph.data.db.AppDatabase
 import dev.scooph.engine.EngineFacade
 import dev.scooph.install.AndroidInstaller
 import dev.scooph.install.ApkInspector
+import dev.scooph.install.InstallQueue
 import dev.scooph.scan.AndroidPackageScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,17 @@ class ScoophApp : Application() {
             installer = AndroidInstaller(this),
             downloadsDir = File(filesDir, "engine/downloads"),
         )
+    }
+
+    /**
+     * 进程级更新队列：主屏与前台服务共享同一份状态。
+     *
+     * 队列不落库，进程结束即消失（spec §10.4）。
+     */
+    val installQueue: InstallQueue by lazy {
+        InstallQueue(appScope) { packageName, onProgress ->
+            repository.updateOne(packageName, onProgress)
+        }
     }
 
     override fun onCreate() {

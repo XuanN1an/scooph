@@ -24,6 +24,12 @@
             </intent-filter>
         </activity>
 
+        <!-- 一键更新期间的前台服务，队列结束即停止（spec §10.4） -->
+        <service
+            android:name=".install.InstallService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 
 </manifest>

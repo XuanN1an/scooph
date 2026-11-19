@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import dev.scooph.ScoophApp
 import dev.scooph.data.MainRepository
 import dev.scooph.domain.DerivedState
+import dev.scooph.install.InstallService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +54,7 @@ data class MainUiState(
 class MainViewModel(
     private val repository: MainRepository,
     scope: CoroutineScope? = null,
+    private val startQueue: (List<String>) -> Unit = {},
 ) : ViewModel() {
 
     private val workScope: CoroutineScope = scope ?: viewModelScope
@@ -81,6 +83,12 @@ class MainViewModel(
         }
     }
 
+    /** 右上「全部更新」：把当前可更新的包名交给前台服务（spec §10.4）。 */
+    fun updateAll() {
+        val packages = _state.value.updatable.map { it.packageName }
+        if (packages.isNotEmpty()) startQueue(packages)
+    }
+
     companion object {
         /** 从 Application 取进程级 Repository 的工厂，供 Activity 注入。 */
         fun factory(application: Application): ViewModelProvider.Factory =
@@ -90,7 +98,12 @@ class MainViewModel(
                         "未知的 ViewModel：${modelClass.name}"
                     }
                     @Suppress("UNCHECKED_CAST")
-                    return MainViewModel((application as ScoophApp).repository) as T
+                    return MainViewModel(
+                        repository = (application as ScoophApp).repository,
+                        startQueue = { packages ->
+                            application.startService(InstallService.intent(application, packages))
+                        },
+                    ) as T
                 }
             }
     }
