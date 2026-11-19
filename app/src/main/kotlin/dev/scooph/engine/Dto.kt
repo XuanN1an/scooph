@@ -53,6 +53,12 @@ data class InstalledSnapshotDto(
     val versionCode: Long,
 )
 
+data class FetchResultDto(
+    val path: String,
+    val size: Long,
+    val sha256: String,
+)
+
 data class PlanResultDto(
     val items: List<PlanItemDto>,
 )
@@ -86,6 +92,15 @@ internal object EngineJson {
         val entries = o.optJSONArray("entries").toEntryList()
         val drops = o.optJSONArray("drops").toDropList()
         return LoadResultDto(entries = entries, drops = drops)
+    }
+
+    fun parseFetch(raw: String): FetchResultDto {
+        val o = JSONObject(raw)
+        return FetchResultDto(
+            path = o.optString("path"),
+            size = o.optLong("size"),
+            sha256 = o.optString("sha256"),
+        )
     }
 
     fun parsePlan(raw: String): PlanResultDto {

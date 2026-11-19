@@ -16,6 +16,9 @@ import dev.scooph.engine.InstalledSnapshotDto
 import dev.scooph.engine.PlanCandidateDto
 import dev.scooph.engine.PlanItemDto
 import dev.scooph.engine.PlanRequestDto
+import dev.scooph.install.ApkInspector
+import dev.scooph.install.InstallOutcome
+import dev.scooph.install.Installer
 import dev.scooph.scan.InstalledApp
 import dev.scooph.scan.PackageScanner
 import dev.scooph.ui.detail.DetailRepository
@@ -25,6 +28,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * 主屏一次刷新所需的数据来源。
@@ -34,6 +38,20 @@ import kotlinx.coroutines.withContext
 interface MainRepository {
     /** 同步所有来源、扫描本机、推导状态，返回一屏未分组的行。 */
     suspend fun refresh(): List<MainRow>
+}
+
+/**
+ * 单包更新的结果（计划 Task 18）。
+ *
+ * 失败原因在 Repository 里定稿，UI 只负责显示，不再拼接。
+ */
+sealed interface UpdateOutcome {
+    data object Success : UpdateOutcome
+
+    /** 用户在系统确认框里取消：这次不装，不落状态。 */
+    data object Cancelled : UpdateOutcome
+
+    data class Failed(val reason: String) : UpdateOutcome
 }
 
 /**
@@ -49,6 +67,10 @@ class Repository(
     private val trackedDao: TrackedDao,
     private val engine: EngineGateway,
     private val scanner: PackageScanner,
+    /** 单包更新用；不涉及更新流程的单测可以不传。 */
+    private val installer: Installer? = null,
+    private val downloadsDir: File = File(System.getProperty("java.io.tmpdir"), "scooph-downloads"),
+    private val apkFingerprint: (File) -> String = ApkInspector::fingerprintOf,
 ) : MainRepository, DetailRepository {
 
     override suspend fun refresh(): List<MainRow> = withContext(Dispatchers.IO) {
@@ -190,6 +212,115 @@ class Repository(
                 skipVersionCode = if (policy == Policy.SKIP_VERSION) skipVersionCode else 0L,
             ),
         )
+    }
+
+    /**
+     * 单包更新（spec §10.3 / 计划 Task 18）：下载 → 校验 → 比对签名锚点 → 安装。
+     *
+     * 校验或签名不过时**不调用安装器**；用户取消不落任何状态；只有安装成功
+     * 才写回版本与签名，并把策略恢复成 `FOLLOW`（跳过的那一版已经装上了）。
+     */
+    suspend fun updateOne(
+        packageName: String,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+    ): UpdateOutcome =
+        withContext(Dispatchers.IO) {
+            val installer =
+                installer ?: return@withContext UpdateOutcome.Failed("安装器未配置")
+            val tracked = trackedDao.get(packageName)
+                ?: return@withContext UpdateOutcome.Failed("未追踪该应用")
+            val sources = sourceDao.observeAll().first()
+            val entries = entryDao.observeAll().first().filter { it.packageName == packageName }
+            val entry = resolveEntry(packageName, entries, sources, tracked.installedVersionCode)
+                ?: return@withContext UpdateOutcome.Failed("没有可用来源")
+
+            val dest = File(downloadsDir, "$packageName-${entry.versionCode}.apk")
+            dest.parentFile?.mkdirs()
+            val fetched =
+                try {
+                    engine.fetch(entry.apkUrl, dest.absolutePath, entry.sha256)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val message = e.message.orEmpty()
+                    if (message.contains("sha256", ignoreCase = true)) {
+                        return@withContext UpdateOutcome.Failed("sha256 不一致")
+                    }
+                    return@withContext UpdateOutcome.Failed(message.ifBlank { "下载失败" })
+                }
+
+            val apk = File(fetched.path.ifBlank { dest.absolutePath })
+            if (!apk.exists()) return@withContext UpdateOutcome.Failed("下载失败")
+            if (entry.sha256.isNotBlank() && !fetched.sha256.equals(entry.sha256, ignoreCase = true)) {
+                apk.delete()
+                return@withContext UpdateOutcome.Failed("sha256 不一致")
+            }
+
+            // 锚点为空表示第一次装：装完才建锚（spec §10.3）。
+            val actual = runCatching { apkFingerprint(apk) }.getOrDefault("")
+            if (actual.isBlank()) {
+                apk.delete()
+                return@withContext UpdateOutcome.Failed("无法读取签名")
+            }
+            val anchor = tracked.signature
+            if (!anchor.isNullOrBlank() && !anchor.equals(actual, ignoreCase = true)) {
+                apk.delete()
+                return@withContext UpdateOutcome.Failed("签名已变更")
+            }
+
+            val outcome =
+                when (val result = installer.install(apk, packageName)) {
+                    InstallOutcome.Success -> {
+                        val now = System.currentTimeMillis()
+                        trackedDao.upsert(
+                            tracked.copy(
+                                installedVersionCode = entry.versionCode,
+                                signature = actual,
+                                policy = Policy.FOLLOW.name,
+                                skipVersionCode = 0L,
+                                installedAt = now,
+                                lastCheckedAt = now,
+                                lastError = null,
+                            ),
+                        )
+                        UpdateOutcome.Success
+                    }
+
+                    InstallOutcome.Cancelled -> UpdateOutcome.Cancelled
+                    InstallOutcome.NeedsUserAction -> UpdateOutcome.Failed("等待用户确认")
+                    is InstallOutcome.Failed -> UpdateOutcome.Failed(result.reason)
+                }
+            apk.delete()
+            outcome
+        }
+
+    override suspend fun update(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome =
+        updateOne(packageName, onProgress)
+
+    /** 与 `Plan()` 相同的仲裁：版本最高，其次添加顺序，最后来源 id。 */
+    private suspend fun resolveEntry(
+        packageName: String,
+        entries: List<EntryEntity>,
+        sources: List<SourceEntity>,
+        installedVersionCode: Long,
+    ): EntryEntity? {
+        if (entries.isEmpty()) return null
+        val plan =
+            engine.plan(
+                PlanRequestDto(
+                    candidates = entries.map { it.toCandidate(sources) },
+                    installed =
+                        listOf(
+                            InstalledSnapshotDto(
+                                packageName = packageName,
+                                versionCode = installedVersionCode,
+                            ),
+                        ),
+                ),
+            )
+        val sourceId = plan.items.firstOrNull()?.sourceId
+        return entries.firstOrNull { it.sourceId == sourceId }
+            ?: entries.maxByOrNull { it.versionCode }
     }
 
     /**

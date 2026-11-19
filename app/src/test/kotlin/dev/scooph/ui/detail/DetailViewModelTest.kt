@@ -1,5 +1,6 @@
 package dev.scooph.ui.detail
 
+import dev.scooph.data.UpdateOutcome
 import dev.scooph.domain.DerivedState
 import dev.scooph.domain.Policy
 import kotlinx.coroutines.CoroutineScope
@@ -132,5 +133,10 @@ class DetailViewModelTest {
             lastPolicy = policy
             lastSkipVersionCode = skipVersionCode
         }
+
+        override suspend fun update(
+            packageName: String,
+            onProgress: (Long, Long) -> Unit,
+        ): UpdateOutcome = UpdateOutcome.Success
     }
 }

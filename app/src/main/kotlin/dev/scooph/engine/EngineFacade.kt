@@ -49,6 +49,13 @@ class EngineFacade(rootDir: File) : EngineGateway {
         return EngineJson.parsePlan(raw)
     }
 
+    /** 下载 APK。失败（含 sha256 不符）由 Go 侧返回 error，这里不吞异常。 */
+    override fun fetch(url: String, destPath: String, wantSHA256: String): FetchResultDto {
+        val native = native ?: error("下载需要 Android 运行时")
+        val raw = native.fetch(url, destPath, wantSHA256)
+        return EngineJson.parseFetch(raw)
+    }
+
     private fun openNative(): NativeEngine? =
         try {
             Api.newEngine(root)

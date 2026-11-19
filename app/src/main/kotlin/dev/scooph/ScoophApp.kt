@@ -6,6 +6,7 @@ import androidx.room.Room
 import dev.scooph.data.Repository
 import dev.scooph.data.db.AppDatabase
 import dev.scooph.engine.EngineFacade
+import dev.scooph.install.AndroidInstaller
 import dev.scooph.install.ApkInspector
 import dev.scooph.scan.AndroidPackageScanner
 import kotlinx.coroutines.CancellationException
@@ -37,6 +38,8 @@ class ScoophApp : Application() {
             trackedDao = database.trackedDao(),
             engine = EngineFacade(File(filesDir, "engine")),
             scanner = AndroidPackageScanner(packageManager),
+            installer = AndroidInstaller(this),
+            downloadsDir = File(filesDir, "engine/downloads"),
         )
     }
 

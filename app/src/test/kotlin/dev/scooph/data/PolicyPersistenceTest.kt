@@ -13,6 +13,7 @@ import dev.scooph.domain.Policy
 import dev.scooph.engine.ApkDto
 import dev.scooph.engine.EngineGateway
 import dev.scooph.engine.EntryDto
+import dev.scooph.engine.FetchResultDto
 import dev.scooph.engine.LoadResultDto
 import dev.scooph.engine.PlanItemDto
 import dev.scooph.engine.PlanRequestDto
@@ -198,6 +199,9 @@ class PolicyPersistenceTest {
             )
 
         override fun plan(request: PlanRequestDto): PlanResultDto = PlanResultDto(items = planItems)
+
+        override fun fetch(url: String, destPath: String, wantSHA256: String): FetchResultDto =
+            FetchResultDto(path = "", size = 0, sha256 = "")
     }
 
     private class FakeScanner(private val installedVersionCode: Long = 6804) : PackageScanner {

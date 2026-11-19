@@ -14,4 +14,10 @@ interface EngineGateway {
     fun load(url: String): LoadResultDto
 
     fun plan(request: PlanRequestDto): PlanResultDto
+
+    /**
+     * 下载 APK 到 [destPath] 并校验 sha256；校验失败会抛异常（不返回坏文件）。
+     * [wantSHA256] 为空表示跳过校验。
+     */
+    fun fetch(url: String, destPath: String, wantSHA256: String): FetchResultDto
 }

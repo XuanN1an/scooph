@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.scooph.ScoophApp
+import dev.scooph.data.UpdateOutcome
 import dev.scooph.domain.DerivedState
 import dev.scooph.domain.Policy
 import kotlinx.coroutines.CancellationException
@@ -27,6 +28,10 @@ data class DetailUiState(
     val signatureChanged: Boolean,
     /** 生效条目的 versionCode；「跳过这一版」用它作为跳过目标。 */
     val entryVersionCode: Long = 0L,
+    val updating: Boolean = false,
+    val progressDone: Long = 0L,
+    val progressTotal: Long = 0L,
+    val lastOutcome: UpdateOutcome? = null,
 )
 
 /** 详情页读取与策略写入接口，便于测试。 */
@@ -38,6 +43,9 @@ interface DetailRepository {
      * 非 [Policy.SKIP_VERSION] 时由实现统一清成 0。
      */
     suspend fun setPolicy(packageName: String, policy: Policy, skipVersionCode: Long)
+
+    /** 下载 + 校验 + 安装一个应用；进度回调给界面。 */
+    suspend fun update(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome
 }
 
 class DetailViewModel(
@@ -84,6 +92,34 @@ class DetailViewModel(
                     .getOrNull()
                     ?.let { _state.value = it }
             }
+        }
+    }
+
+    /**
+     * 下载并安装当前应用（spec §10.3 / 计划 Task 18）。
+     *
+     * 进度写进 [DetailUiState.progressDone] / [DetailUiState.progressTotal]；
+     * 结束后重新读详情，行内状态由 Repository 落库的结果决定。
+     * 界面自己的模态框不存在，系统确认框由 Android 弹。
+     */
+    fun update() {
+        if (_state.value.updating) return
+        workScope.launch {
+            _state.value = _state.value.copy(updating = true, progressDone = 0L, progressTotal = 0L, lastOutcome = null)
+            val outcome =
+                try {
+                    repository.update(packageName) { done, total ->
+                        _state.value = _state.value.copy(progressDone = done, progressTotal = total)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    UpdateOutcome.Failed(e.message ?: "更新失败")
+                }
+            _state.value = _state.value.copy(updating = false, lastOutcome = outcome)
+            runCatching { repository.load(packageName) }
+                .getOrNull()
+                ?.let { fresh -> _state.value = fresh.copy(lastOutcome = outcome) }
         }
     }
 
