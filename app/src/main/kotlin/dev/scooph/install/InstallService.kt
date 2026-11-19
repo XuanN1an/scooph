@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import dev.scooph.ScoophApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,7 @@ class InstallService : Service() {
         scope.launch {
             queue.items.collect { items ->
                 if (items.isNotEmpty() && items.all { isTerminal(it.state) }) {
+                    postSummary(items)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
                 }
@@ -70,6 +72,18 @@ class InstallService : Service() {
             .setSilent(true)
             .build()
 
+    private fun postSummary(items: List<QueueItem>) {
+        val notification =
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Scooph")
+                .setContentText(summaryText(items))
+                .setAutoCancel(true)
+                .build()
+        // POST_NOTIFICATIONS 未授权时静默跳过，不影响队列结果。
+        runCatching { NotificationManagerCompat.from(this).notify(SUMMARY_ID, notification) }
+    }
+
     private fun isTerminal(state: QueueState): Boolean =
         when (state) {
             QueueState.Waiting, QueueState.Downloading -> false
@@ -80,10 +94,37 @@ class InstallService : Service() {
         const val EXTRA_PACKAGES = "dev.scooph.extra.PACKAGES"
         private const val CHANNEL_ID = "updates"
         private const val NOTIFICATION_ID = 1
+        private const val SUMMARY_ID = 2
 
         /** 主屏点「全部更新」时调用：把包名列表交给前台服务。 */
         fun intent(context: Context, packages: List<String>): Intent =
             Intent(context, InstallService::class.java)
                 .putStringArrayListExtra(EXTRA_PACKAGES, ArrayList(packages))
     }
+}
+
+/**
+ * 队列结束时的汇总文案（计划 Task 21）。
+ *
+ * 全部失败时说「全部失败」；否则只列非零的计数，不加多余解释。
+ * 签名变更算失败（人还没处理）。
+ */
+fun summaryText(items: List<QueueItem>): String {
+    val done = items.count { it.state == QueueState.Done }
+    val skipped = items.count { it.state is QueueState.Skipped }
+    val failed =
+        items.count { it.state is QueueState.Failed || it.state == QueueState.AwaitingConfirm }
+
+    if (items.isNotEmpty() && done == 0 && skipped == 0) {
+        return "全部失败 · 失败 $failed"
+    }
+
+    val parts =
+        buildList {
+            if (done > 0) add("成功 $done")
+            if (skipped > 0) add("跳过 $skipped")
+            if (failed > 0) add("失败 $failed")
+        }
+    if (parts.isEmpty()) return "更新完成"
+    return "更新完成 · ${parts.joinToString("，")}"
 }
