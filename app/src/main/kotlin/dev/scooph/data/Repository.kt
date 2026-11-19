@@ -302,48 +302,18 @@ class Repository(
             val entry = resolveEntry(packageName, entries, sources, tracked.installedVersionCode)
                 ?: return@withContext UpdateOutcome.Failed("没有可用来源")
 
-            val dest = File(downloadsDir, "$packageName-${entry.versionCode}.apk")
-            dest.parentFile?.mkdirs()
-            val fetched =
-                try {
-                    engine.fetch(entry.apkUrl, dest.absolutePath, entry.sha256)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    val message = e.message.orEmpty()
-                    if (message.contains("sha256", ignoreCase = true)) {
-                        return@withContext UpdateOutcome.Failed("sha256 不一致")
-                    }
-                    return@withContext UpdateOutcome.Failed(message.ifBlank { "下载失败" })
-                }
-
-            val apk = File(fetched.path.ifBlank { dest.absolutePath })
-            if (!apk.exists()) return@withContext UpdateOutcome.Failed("下载失败")
-            if (entry.sha256.isNotBlank() && !fetched.sha256.equals(entry.sha256, ignoreCase = true)) {
-                apk.delete()
-                return@withContext UpdateOutcome.Failed("sha256 不一致")
-            }
-
-            // 锚点为空表示第一次装：装完才建锚（spec §10.3）。
-            val actual = runCatching { apkFingerprint(apk) }.getOrDefault("")
-            if (actual.isBlank()) {
-                apk.delete()
-                return@withContext UpdateOutcome.Failed("无法读取签名")
-            }
-            val anchor = tracked.signature
-            if (!anchor.isNullOrBlank() && !anchor.equals(actual, ignoreCase = true)) {
-                apk.delete()
-                return@withContext UpdateOutcome.Failed("签名已变更")
-            }
+            val prepared = prepareApk(packageName, entry, tracked.signature, onProgress)
+            if (prepared is Prepared.Failure) return@withContext prepared.outcome
+            val ready = prepared as Prepared.Ready
 
             val outcome =
-                when (val result = installer.install(apk, packageName)) {
+                when (val result = installer.install(ready.apk, packageName)) {
                     InstallOutcome.Success -> {
                         val now = System.currentTimeMillis()
                         trackedDao.upsert(
                             tracked.copy(
                                 installedVersionCode = entry.versionCode,
-                                signature = actual,
+                                signature = ready.fingerprint,
                                 policy = Policy.FOLLOW.name,
                                 skipVersionCode = 0L,
                                 installedAt = now,
@@ -358,12 +328,114 @@ class Repository(
                     InstallOutcome.NeedsUserAction -> UpdateOutcome.Failed("等待用户确认")
                     is InstallOutcome.Failed -> UpdateOutcome.Failed(result.reason)
                 }
-            apk.delete()
+            ready.apk.delete()
             outcome
         }
 
     override suspend fun update(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome =
         updateOne(packageName, onProgress)
+
+    /**
+     * 从条目页首次安装一个新应用（计划 Task 24）。
+     *
+     * 与 [updateOne] 共用下载/校验/签名管道；第一次装没有锚点，
+     * 只有安装成功才建 `tracked(FOLLOW)` 和首次签名锚（spec §10.3）。
+     */
+    suspend fun installNew(
+        packageName: String,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+    ): UpdateOutcome =
+        withContext(Dispatchers.IO) {
+            val installer =
+                installer ?: return@withContext UpdateOutcome.Failed("安装器未配置")
+            val sources = sourceDao.observeAll().first()
+            val entries = entryDao.observeAll().first().filter { it.packageName == packageName }
+            val entry = resolveEntry(packageName, entries, sources, installedVersionCode = 0L)
+                ?: return@withContext UpdateOutcome.Failed("没有可用来源")
+
+            val prepared = prepareApk(packageName, entry, anchor = null, onProgress = onProgress)
+            if (prepared is Prepared.Failure) return@withContext prepared.outcome
+            val ready = prepared as Prepared.Ready
+
+            val outcome =
+                when (val result = installer.install(ready.apk, packageName)) {
+                    InstallOutcome.Success -> {
+                        val now = System.currentTimeMillis()
+                        trackedDao.upsert(
+                            TrackedEntity(
+                                packageName = packageName,
+                                policy = Policy.FOLLOW.name,
+                                skipVersionCode = 0L,
+                                installedVersionCode = entry.versionCode,
+                                signature = ready.fingerprint,
+                                installedAt = now,
+                                lastCheckedAt = now,
+                                lastError = null,
+                            ),
+                        )
+                        UpdateOutcome.Success
+                    }
+
+                    InstallOutcome.Cancelled -> UpdateOutcome.Cancelled
+                    InstallOutcome.NeedsUserAction -> UpdateOutcome.Failed("等待用户确认")
+                    is InstallOutcome.Failed -> UpdateOutcome.Failed(result.reason)
+                }
+            ready.apk.delete()
+            outcome
+        }
+
+    /** 下载 + 校验 + 读签名的结果，供更新与首次安装共用。 */
+    private sealed interface Prepared {
+        data class Ready(val apk: File, val fingerprint: String) : Prepared
+
+        data class Failure(val outcome: UpdateOutcome) : Prepared
+    }
+
+    private suspend fun prepareApk(
+        packageName: String,
+        entry: EntryEntity,
+        anchor: String?,
+        onProgress: (Long, Long) -> Unit,
+    ): Prepared {
+        val dest = File(downloadsDir, "$packageName-${entry.versionCode}.apk")
+        dest.parentFile?.mkdirs()
+        val fetched =
+            try {
+                engine.fetch(entry.apkUrl, dest.absolutePath, entry.sha256)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val message = e.message.orEmpty()
+                return Prepared.Failure(
+                    UpdateOutcome.Failed(
+                        if (message.contains("sha256", ignoreCase = true)) {
+                            "sha256 不一致"
+                        } else {
+                            message.ifBlank { "下载失败" }
+                        },
+                    ),
+                )
+            }
+        onProgress(fetched.size, fetched.size)
+
+        val apk = File(fetched.path.ifBlank { dest.absolutePath })
+        if (!apk.exists()) return Prepared.Failure(UpdateOutcome.Failed("下载失败"))
+        if (entry.sha256.isNotBlank() && !fetched.sha256.equals(entry.sha256, ignoreCase = true)) {
+            apk.delete()
+            return Prepared.Failure(UpdateOutcome.Failed("sha256 不一致"))
+        }
+
+        val actual = runCatching { apkFingerprint(apk) }.getOrDefault("")
+        if (actual.isBlank()) {
+            apk.delete()
+            return Prepared.Failure(UpdateOutcome.Failed("无法读取签名"))
+        }
+        if (!anchor.isNullOrBlank() && !anchor.equals(actual, ignoreCase = true)) {
+            apk.delete()
+            return Prepared.Failure(UpdateOutcome.Failed("签名已变更"))
+        }
+        return Prepared.Ready(apk, actual)
+    }
 
     /** 与 `Plan()` 相同的仲裁：版本最高，其次添加顺序，最后来源 id。 */
     private suspend fun resolveEntry(

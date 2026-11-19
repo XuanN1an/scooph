@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.scooph.install.InstallService
 import dev.scooph.ui.detail.DetailScreen
 import dev.scooph.ui.detail.DetailViewModel
 import dev.scooph.ui.main.MainScreen
@@ -59,6 +60,12 @@ class MainActivity : ComponentActivity() {
                             onBack = { route = ROUTE_SOURCES },
                             onOpenDetail = { packageName ->
                                 route = ROUTE_DETAIL_PREFIX + packageName
+                            },
+                            onInstall = { packageName ->
+                                // 未安装行直接开始安装，不跳详情页（spec §11.4）。
+                                startService(
+                                    InstallService.intent(application, listOf(packageName)),
+                                )
                             },
                         )
                     }
