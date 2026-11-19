@@ -14,8 +14,15 @@ import dev.scooph.ui.detail.DetailScreen
 import dev.scooph.ui.detail.DetailViewModel
 import dev.scooph.ui.main.MainScreen
 import dev.scooph.ui.main.MainViewModel
+import dev.scooph.ui.sources.SourcesScreen
+import dev.scooph.ui.sources.SourcesViewModel
 import dev.scooph.ui.theme.ScoophTheme
 
+/**
+ * 不引导航库的导航宿主：一个可保存的路由字符串 + 一个 when。
+ *
+ * 路由形如 `main`、`sources`、`detail:<包名>`；返回键统一回到主屏。
+ */
 class MainActivity : ComponentActivity() {
 
     /** 唯一注入点：Repository 来自 [ScoophApp]，ViewModel 跨配置变更保留。 */
@@ -25,28 +32,46 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             ScoophTheme {
-                // 不引导航库：一个 when 分发；详情包名存成可保存状态，
-                // 旋转屏幕后仍停在详情页。
-                var detailPackage by rememberSaveable { mutableStateOf<String?>(null) }
-                val pkg = detailPackage
-                BackHandler(enabled = pkg != null) { detailPackage = null }
-                if (pkg == null) {
-                    MainScreen(
-                        viewModel = mainViewModel,
-                        onOpenDetail = { opened -> detailPackage = opened },
-                    )
-                } else {
-                    val detailViewModel: DetailViewModel =
-                        viewModel(
-                            key = "detail-$pkg",
-                            factory = DetailViewModel.factory(application, pkg),
+                var route by rememberSaveable { mutableStateOf(ROUTE_MAIN) }
+                BackHandler(enabled = route != ROUTE_MAIN) { route = ROUTE_MAIN }
+                when {
+                    route == ROUTE_SOURCES -> {
+                        val sourcesViewModel: SourcesViewModel =
+                            viewModel(factory = SourcesViewModel.factory(application))
+                        SourcesScreen(
+                            viewModel = sourcesViewModel,
+                            onBack = { route = ROUTE_MAIN },
                         )
-                    DetailScreen(
-                        viewModel = detailViewModel,
-                        onBack = { detailPackage = null },
-                    )
+                    }
+
+                    route.startsWith(ROUTE_DETAIL_PREFIX) -> {
+                        val packageName = route.removePrefix(ROUTE_DETAIL_PREFIX)
+                        val detailViewModel: DetailViewModel =
+                            viewModel(
+                                key = "detail-$packageName",
+                                factory = DetailViewModel.factory(application, packageName),
+                            )
+                        DetailScreen(
+                            viewModel = detailViewModel,
+                            onBack = { route = ROUTE_MAIN },
+                        )
+                    }
+
+                    else -> {
+                        MainScreen(
+                            viewModel = mainViewModel,
+                            onOpenDetail = { packageName -> route = ROUTE_DETAIL_PREFIX + packageName },
+                            onOpenSources = { route = ROUTE_SOURCES },
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private companion object {
+        const val ROUTE_MAIN = "main"
+        const val ROUTE_SOURCES = "sources"
+        const val ROUTE_DETAIL_PREFIX = "detail:"
     }
 }

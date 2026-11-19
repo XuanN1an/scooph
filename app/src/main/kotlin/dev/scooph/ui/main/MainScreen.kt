@@ -45,12 +45,14 @@ import dev.scooph.install.QueueItem
 fun MainScreen(
     viewModel: MainViewModel,
     onOpenDetail: (String) -> Unit,
+    onOpenSources: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.refresh() }
     MainContent(
         state = state,
         onOpenDetail = onOpenDetail,
+        onOpenSources = onOpenSources,
         onUpdateAll = viewModel::updateAll,
     )
 }
@@ -59,6 +61,7 @@ fun MainScreen(
 private fun MainContent(
     state: MainUiState,
     onOpenDetail: (String) -> Unit,
+    onOpenSources: () -> Unit,
     onUpdateAll: () -> Unit,
 ) {
     val queueByPackage = state.queue.associateBy { it.packageName }
@@ -73,7 +76,7 @@ private fun MainContent(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = {}) {
+            TextButton(onClick = onOpenSources) {
                 Text(text = "来源", fontSize = 14.sp)
             }
             Spacer(Modifier.weight(1f))

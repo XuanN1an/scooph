@@ -24,6 +24,8 @@ import dev.scooph.scan.PackageScanner
 import dev.scooph.ui.detail.DetailRepository
 import dev.scooph.ui.detail.DetailUiState
 import dev.scooph.ui.main.MainRow
+import dev.scooph.ui.sources.SourceRow
+import dev.scooph.ui.sources.SourcesRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -71,7 +73,7 @@ class Repository(
     private val installer: Installer? = null,
     private val downloadsDir: File = File(System.getProperty("java.io.tmpdir"), "scooph-downloads"),
     private val apkFingerprint: (File) -> String = ApkInspector::fingerprintOf,
-) : MainRepository, DetailRepository {
+) : MainRepository, DetailRepository, SourcesRepository {
 
     override suspend fun refresh(): List<MainRow> = withContext(Dispatchers.IO) {
         val sources = sourceDao.observeAll().first()
@@ -213,6 +215,55 @@ class Repository(
             ),
         )
     }
+
+    override suspend fun load(): List<SourceRow> =
+        withContext(Dispatchers.IO) {
+            val sources = sourceDao.observeAll().first()
+            val entries = entryDao.observeAll().first()
+            sources.map { source ->
+                SourceRow(
+                    url = source.url,
+                    name = source.name,
+                    entryCount = entries.count { it.sourceId == source.url },
+                    lastSyncAt = source.lastSyncAt,
+                    status = source.status,
+                )
+            }
+        }
+
+    override suspend fun add(url: String): String? =
+        withContext(Dispatchers.IO) {
+            val existing = sourceDao.observeAll().first()
+            if (existing.any { it.url == url }) return@withContext "这个来源已经添加过了"
+            val source =
+                SourceEntity(
+                    url = url,
+                    name = bucketName(url),
+                    lastSyncAt = 0L,
+                    lastCommit = null,
+                    status = STATUS_PENDING,
+                    addedOrder = (existing.maxOfOrNull { it.addedOrder } ?: -1) + 1,
+                )
+            sourceDao.upsert(source)
+            syncOne(source, System.currentTimeMillis())
+            null
+        }
+
+    override suspend fun remove(url: String): Unit =
+        withContext(Dispatchers.IO) {
+            // 只删来源与它的条目；tracked 属于设备，继续保留（spec §9.1）。
+            sourceDao.delete(url)
+        }
+
+    override suspend fun sync(url: String): Unit =
+        withContext(Dispatchers.IO) {
+            sourceDao.observeAll().first().firstOrNull { it.url == url }?.let { source ->
+                syncOne(source, System.currentTimeMillis())
+            }
+        }
+
+    private fun bucketName(url: String): String =
+        url.substringAfterLast('/').removeSuffix(".git").ifBlank { url }
 
     /**
      * 单包更新（spec §10.3 / 计划 Task 18）：下载 → 校验 → 比对签名锚点 → 安装。
