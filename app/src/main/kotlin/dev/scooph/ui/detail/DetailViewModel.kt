@@ -25,11 +25,19 @@ data class DetailUiState(
     val skipVersionCode: Long,
     val sourceLabel: String,
     val signatureChanged: Boolean,
+    /** 生效条目的 versionCode；「跳过这一版」用它作为跳过目标。 */
+    val entryVersionCode: Long = 0L,
 )
 
-/** 详情页读取接口，便于测试。 */
+/** 详情页读取与策略写入接口，便于测试。 */
 interface DetailRepository {
     suspend fun load(packageName: String): DetailUiState?
+
+    /**
+     * 写策略。调用方传当前条目版本作为 [skipVersionCode]；
+     * 非 [Policy.SKIP_VERSION] 时由实现统一清成 0。
+     */
+    suspend fun setPolicy(packageName: String, policy: Policy, skipVersionCode: Long)
 }
 
 class DetailViewModel(
@@ -51,6 +59,30 @@ class DetailViewModel(
                 throw e
             } catch (_: Exception) {
                 _state.value = fallbackState(packageName)
+            }
+        }
+    }
+
+    /**
+     * 选中一个策略并立即落库，成功后重新读一遍详情。
+     *
+     * 「跳过这一版」把当前生效条目的 versionCode 记成跳过目标；其余策略清 0，
+     * 这样上游出了更新版本会自动回到可更新（spec §9.2）。
+     */
+    fun selectPolicy(policy: Policy) {
+        workScope.launch {
+            try {
+                val current = _state.value
+                val skip = if (policy == Policy.SKIP_VERSION) current.entryVersionCode else 0L
+                repository.setPolicy(packageName, policy, skip)
+                _state.value = repository.load(packageName) ?: fallbackState(packageName)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 写入失败时保留当前界面，重新读一次真实状态。
+                runCatching { repository.load(packageName) }
+                    .getOrNull()
+                    ?.let { _state.value = it }
             }
         }
     }

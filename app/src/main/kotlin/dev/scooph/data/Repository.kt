@@ -10,7 +10,7 @@ import dev.scooph.domain.Policy
 import dev.scooph.domain.Relation
 import dev.scooph.domain.derive
 import dev.scooph.engine.ApkDto
-import dev.scooph.engine.EngineFacade
+import dev.scooph.engine.EngineGateway
 import dev.scooph.engine.EntryDto
 import dev.scooph.engine.InstalledSnapshotDto
 import dev.scooph.engine.PlanCandidateDto
@@ -47,7 +47,7 @@ class Repository(
     private val sourceDao: SourceDao,
     private val entryDao: EntryDao,
     private val trackedDao: TrackedDao,
-    private val engine: EngineFacade,
+    private val engine: EngineGateway,
     private val scanner: PackageScanner,
 ) : MainRepository, DetailRepository {
 
@@ -168,6 +168,27 @@ class Repository(
             skipVersionCode = tracked.skipVersionCode,
             sourceLabel = sourceLabel,
             signatureChanged = tracked.lastError?.contains("签名") == true,
+            entryVersionCode = entryVersionCode,
+        )
+    }
+
+    /**
+     * 写策略（spec §9.2 / 计划 Task 14）。
+     *
+     * 只有「跳过这一版」保留跳过目标；其余策略一律清 0，避免旧跳过值在切回
+     * `FOLLOW` 后仍然生效。追踪记录不存在时什么都不做（详情页只对已追踪应用开放）。
+     */
+    override suspend fun setPolicy(
+        packageName: String,
+        policy: Policy,
+        skipVersionCode: Long,
+    ) = withContext(Dispatchers.IO) {
+        val current = trackedDao.get(packageName) ?: return@withContext
+        trackedDao.upsert(
+            current.copy(
+                policy = policy.name,
+                skipVersionCode = if (policy == Policy.SKIP_VERSION) skipVersionCode else 0L,
+            ),
         )
     }
 

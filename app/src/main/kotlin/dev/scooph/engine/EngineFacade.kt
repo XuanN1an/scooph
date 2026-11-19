@@ -11,13 +11,13 @@ import java.io.File
  * `lib/<abi>/libgojni.so` 只有 Android 运行时能加载；JVM 单测（`:app:testDebugUnitTest`）
  * 里调用会选择占位结果，真正的 native 调用验证放在能在 Android 运行时跑的任务里。
  */
-class EngineFacade(rootDir: File) {
+class EngineFacade(rootDir: File) : EngineGateway {
     private val root: String = rootDir.apply { mkdirs() }.absolutePath
 
     private val native: NativeEngine? = openNative()
 
     /** 引擎版本；native 不可用时（JVM 单测）返回占位值。 */
-    fun version(): String =
+    override fun version(): String =
         try {
             native?.version()?.takeIf { it.isNotBlank() } ?: JVM_PLACEHOLDER_VERSION
         } catch (_: LinkageError) {
@@ -25,7 +25,7 @@ class EngineFacade(rootDir: File) {
         }
 
     /** 同步一个 bucket。 */
-    fun sync(url: String): SyncResultDto {
+    override fun sync(url: String): SyncResultDto {
         val raw =
             nativeCall { it.sync(url) } ?: """
             {"commit":"","files":[],"empty":true}
@@ -34,7 +34,7 @@ class EngineFacade(rootDir: File) {
     }
 
     /** 读取 bucket 条目与丢弃原因。 */
-    fun load(url: String): LoadResultDto {
+    override fun load(url: String): LoadResultDto {
         val raw =
             nativeCall { it.load(url) } ?: """
             {"entries":[],"drops":[]}
@@ -43,7 +43,7 @@ class EngineFacade(rootDir: File) {
     }
 
     /** 计算更新计划。 */
-    fun plan(request: PlanRequestDto): PlanResultDto {
+    override fun plan(request: PlanRequestDto): PlanResultDto {
         val reqJson = EngineJson.encodePlanRequest(request)
         val raw = nativeCall { it.plan(reqJson) } ?: """{"items":[]}"""
         return EngineJson.parsePlan(raw)

@@ -2,6 +2,7 @@ package dev.scooph.ui.detail
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ fun DetailScreen(
         onBack = onBack,
         onUpdateClick = { onUpdateClick(state.packageName) },
         onAcceptAndUpdate = { onAcceptAndUpdate(state.packageName) },
+        onPolicySelected = viewModel::selectPolicy,
     )
 }
 
@@ -58,6 +60,7 @@ private fun DetailContent(
     onBack: () -> Unit,
     onUpdateClick: () -> Unit,
     onAcceptAndUpdate: () -> Unit,
+    onPolicySelected: (Policy) -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     Column(
@@ -153,16 +156,19 @@ private fun DetailContent(
                     title = "正常更新",
                     selected = state.policy == Policy.FOLLOW,
                     accentColor = accent,
+                    onClick = { onPolicySelected(Policy.FOLLOW) },
                 )
                 PolicyRow(
                     title = "跳过这一版",
                     selected = state.policy == Policy.SKIP_VERSION,
                     accentColor = accent,
+                    onClick = { onPolicySelected(Policy.SKIP_VERSION) },
                 )
                 PolicyRow(
                     title = "忽略后续更新",
                     selected = state.policy == Policy.UNTRACKED,
                     accentColor = accent,
+                    onClick = { onPolicySelected(Policy.UNTRACKED) },
                 )
             }
         }
@@ -236,9 +242,14 @@ private fun PolicyRow(
     title: String,
     selected: Boolean,
     accentColor: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
