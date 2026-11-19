@@ -1,10 +1,5 @@
 package dev.scooph.data
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
-import dev.scooph.data.db.AppDatabase
-import dev.scooph.data.db.TestDatabase
-import dev.scooph.data.db.TestDatabaseHandle
 import dev.scooph.data.db.EntryEntity
 import dev.scooph.data.db.SourceEntity
 import dev.scooph.data.db.TrackedEntity
@@ -21,15 +16,9 @@ import dev.scooph.engine.SyncResultDto
 import dev.scooph.scan.InstalledApp
 import dev.scooph.scan.PackageScanner
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 
 /**
  * 签名锚点在扫描时就建立（spec §10.3 / 计划 Task 16）。
@@ -37,24 +26,9 @@ import org.robolectric.annotation.SQLiteMode
  * 本机已装且有签名、`tracked.signature` 为空 → 刷新后写入扫描值；
  * `UNTRACKED` 是用户显式停止跟踪的墓碑，不为它建锚。
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AnchorTest {
 
-    private lateinit var handle: TestDatabaseHandle
-
-    private val db: AppDatabase
-        get() = handle.db
-
-    @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        handle = TestDatabase.create(context)
-    }
-
-    @After
-    fun tearDown() = handle.release()
+    private val daos = FakeDaos()
 
     @Test
     fun `refresh fills a missing signature anchor from the scanned app`() = runBlocking {
@@ -63,7 +37,7 @@ class AnchorTest {
 
         repository().refresh()
 
-        assertEquals(SCANNED_SIGNATURE, db.trackedDao().get(PKG)!!.signature)
+        assertEquals(SCANNED_SIGNATURE, daos.tracked.get(PKG)!!.signature)
     }
 
     @Test
@@ -73,7 +47,7 @@ class AnchorTest {
 
         repository().refresh()
 
-        assertNull(db.trackedDao().get(PKG)!!.signature)
+        assertNull(daos.tracked.get(PKG)!!.signature)
     }
 
     @Test
@@ -83,19 +57,19 @@ class AnchorTest {
 
         repository().refresh()
 
-        assertEquals("original", db.trackedDao().get(PKG)!!.signature)
+        assertEquals("original", daos.tracked.get(PKG)!!.signature)
     }
 
     private fun repository() = Repository(
-        sourceDao = db.sourceDao(),
-        entryDao = db.entryDao(),
-        trackedDao = db.trackedDao(),
+        sourceDao = daos.sources,
+        entryDao = daos.entries,
+        trackedDao = daos.tracked,
         engine = FakeEngine(),
         scanner = FakeScanner(),
     )
 
     private suspend fun seedSourceAndEntry() {
-        db.sourceDao().upsert(
+        daos.sources.upsert(
             SourceEntity(
                 url = SOURCE_URL,
                 name = "bucket-a",
@@ -105,7 +79,7 @@ class AnchorTest {
                 addedOrder = 0,
             ),
         )
-        db.entryDao().insertAll(
+        daos.entries.insertAll(
             listOf(
                 EntryEntity(
                     packageName = PKG,
@@ -123,7 +97,7 @@ class AnchorTest {
     }
 
     private suspend fun seedTracked(policy: Policy, signature: String?) {
-        db.trackedDao().upsert(
+        daos.tracked.upsert(
             TrackedEntity(
                 packageName = PKG,
                 policy = policy.name,

@@ -1,13 +1,18 @@
 package dev.scooph.install
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import dev.scooph.ScoophApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +77,12 @@ class InstallService : Service() {
             .setSilent(true)
             .build()
 
+    // POST_NOTIFICATIONS 在 canPostNotifications() 里显式检查过；lint 的数据流
+    // 跨不过这个辅助函数，所以这里局部豁免。
+    @SuppressLint("MissingPermission")
     private fun postSummary(items: List<QueueItem>) {
+        // POST_NOTIFICATIONS 未授权时静默跳过，不影响队列结果。
+        if (!canPostNotifications()) return
         val notification =
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -80,9 +90,16 @@ class InstallService : Service() {
                 .setContentText(summaryText(items))
                 .setAutoCancel(true)
                 .build()
-        // POST_NOTIFICATIONS 未授权时静默跳过，不影响队列结果。
         runCatching { NotificationManagerCompat.from(this).notify(SUMMARY_ID, notification) }
     }
+
+    private fun canPostNotifications(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            NotificationManagerCompat.from(this).areNotificationsEnabled()
+        }
 
     private fun isTerminal(state: QueueState): Boolean =
         when (state) {

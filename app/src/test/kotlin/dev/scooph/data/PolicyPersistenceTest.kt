@@ -1,10 +1,5 @@
 package dev.scooph.data
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
-import dev.scooph.data.db.AppDatabase
-import dev.scooph.data.db.TestDatabase
-import dev.scooph.data.db.TestDatabaseHandle
 import dev.scooph.data.db.EntryEntity
 import dev.scooph.data.db.SourceEntity
 import dev.scooph.data.db.TrackedEntity
@@ -22,40 +17,18 @@ import dev.scooph.engine.SyncResultDto
 import dev.scooph.scan.InstalledApp
 import dev.scooph.scan.PackageScanner
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 
 /**
  * 三个策略落库（spec §9.2 / 计划 Task 14）。
  *
- * 真 Room（in-memory）+ 假引擎与假扫描：验证策略写入后再读回一致、
- * `FOLLOW` 清空跳过版本，以及 `UNTRACKED` 墓碑不会被 `refresh()` 改回。
+ * 内存 DAO + 假引擎与假扫描：验证策略写入后再读回一致、`FOLLOW` 清空跳过版本，
+ * 以及 `UNTRACKED` 墓碑不会被 `refresh()` 改回。
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class PolicyPersistenceTest {
 
-    private lateinit var handle: TestDatabaseHandle
-
-    private val db: AppDatabase
-        get() = handle.db
-
-    @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        handle = TestDatabase.create(context)
-    }
-
-    @After
-    fun tearDown() = handle.release()
+    private val daos = FakeDaos()
 
     @Test
     fun `setPolicy stores SKIP_VERSION together with the skip version code`() = runBlocking {
@@ -63,9 +36,8 @@ class PolicyPersistenceTest {
 
         repository().setPolicy(PKG, Policy.SKIP_VERSION, 7000)
 
-        val tracked = db.trackedDao().get(PKG)
-        assertNotNull(tracked)
-        assertEquals("SKIP_VERSION", tracked!!.policy)
+        val tracked = daos.tracked.get(PKG)!!
+        assertEquals("SKIP_VERSION", tracked.policy)
         assertEquals(7000L, tracked.skipVersionCode)
     }
 
@@ -75,7 +47,7 @@ class PolicyPersistenceTest {
 
         repository().setPolicy(PKG, Policy.FOLLOW, 7000)
 
-        val tracked = db.trackedDao().get(PKG)!!
+        val tracked = daos.tracked.get(PKG)!!
         assertEquals("FOLLOW", tracked.policy)
         assertEquals(0L, tracked.skipVersionCode)
     }
@@ -84,30 +56,31 @@ class PolicyPersistenceTest {
     fun `UNTRACKED tombstone survives refresh`() = runBlocking {
         seedSourceAndEntry()
         seedTracked(policy = Policy.UNTRACKED, skipVersionCode = 0, installedVersionCode = 6804)
-        val repo = repository(
-            engine =
-                FakeEngine(
-                    planItems =
-                        listOf(
-                            PlanItemDto(
-                                packageName = PKG,
-                                name = "Example",
-                                relation = "newer",
-                                entryVersionCode = 7000,
-                                installedVersionCode = 6805,
-                                apkUrl = "https://example.com/app.apk",
-                                sha256 = "0".repeat(64),
-                                size = 1,
-                                sourceId = SOURCE_URL,
+        val repo =
+            repository(
+                engine =
+                    FakeEngine(
+                        planItems =
+                            listOf(
+                                PlanItemDto(
+                                    packageName = PKG,
+                                    name = "Example",
+                                    relation = "newer",
+                                    entryVersionCode = 7000,
+                                    installedVersionCode = 6805,
+                                    apkUrl = "https://example.com/app.apk",
+                                    sha256 = "0".repeat(64),
+                                    size = 1,
+                                    sourceId = SOURCE_URL,
+                                ),
                             ),
-                        ),
-                ),
-            scanner = FakeScanner(installedVersionCode = 6805),
-        )
+                    ),
+                scanner = FakeScanner(installedVersionCode = 6805),
+            )
 
         val rows = repo.refresh()
 
-        val tracked = db.trackedDao().get(PKG)!!
+        val tracked = daos.tracked.get(PKG)!!
         // 墓碑不被同步/扫描覆盖，只刷新本机版本。
         assertEquals("UNTRACKED", tracked.policy)
         assertEquals(6805L, tracked.installedVersionCode)
@@ -119,15 +92,15 @@ class PolicyPersistenceTest {
         engine: EngineGateway = FakeEngine(),
         scanner: PackageScanner = FakeScanner(),
     ) = Repository(
-        sourceDao = db.sourceDao(),
-        entryDao = db.entryDao(),
-        trackedDao = db.trackedDao(),
+        sourceDao = daos.sources,
+        entryDao = daos.entries,
+        trackedDao = daos.tracked,
         engine = engine,
         scanner = scanner,
     )
 
     private suspend fun seedSourceAndEntry() {
-        db.sourceDao().upsert(
+        daos.sources.upsert(
             SourceEntity(
                 url = SOURCE_URL,
                 name = "bucket-a",
@@ -137,7 +110,7 @@ class PolicyPersistenceTest {
                 addedOrder = 0,
             ),
         )
-        db.entryDao().insertAll(listOf(entry()))
+        daos.entries.insertAll(listOf(entry()))
     }
 
     private suspend fun seedTracked(
@@ -145,7 +118,7 @@ class PolicyPersistenceTest {
         skipVersionCode: Long,
         installedVersionCode: Long = 6804,
     ) {
-        db.trackedDao().upsert(
+        daos.tracked.upsert(
             TrackedEntity(
                 packageName = PKG,
                 policy = policy.name,

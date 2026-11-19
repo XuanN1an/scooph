@@ -1,12 +1,7 @@
 package dev.scooph.data
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
-import dev.scooph.data.db.AppDatabase
 import dev.scooph.data.db.EntryEntity
 import dev.scooph.data.db.SourceEntity
-import dev.scooph.data.db.TestDatabase
-import dev.scooph.data.db.TestDatabaseHandle
 import dev.scooph.data.db.TrackedEntity
 import dev.scooph.domain.Policy
 import dev.scooph.engine.EngineGateway
@@ -20,42 +15,22 @@ import dev.scooph.install.Installer
 import dev.scooph.scan.InstalledApp
 import dev.scooph.scan.PackageScanner
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 import java.io.File
 
 /**
  * 单包更新端到端（计划 Task 18）。
  *
- * 用假引擎、假指纹和假安装器走四条路径：哈希不符、签名变更、用户取消、成功。
+ * 内存 DAO + 假引擎/指纹/安装器走四条路径：哈希不符、签名变更、用户取消、成功。
  * 失败与取消都不动 `tracked`；成功才写回版本、签名并恢复 `FOLLOW`。
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class UpdateFlowTest {
 
-    private lateinit var handle: TestDatabaseHandle
-
-    private val db: AppDatabase
-        get() = handle.db
-
-    @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        handle = TestDatabase.create(context)
-    }
-
-    @After
-    fun tearDown() = handle.release()
+    private val daos = FakeDaos()
+    private val downloads = File(System.getProperty("java.io.tmpdir"), "scooph-update-flow-test")
 
     @Test
     fun `hash mismatch fails without touching tracked`() = runBlocking {
@@ -66,7 +41,7 @@ class UpdateFlowTest {
         val outcome = repo.updateOne(PKG)
 
         assertEquals(UpdateOutcome.Failed("sha256 不一致"), outcome)
-        assertEquals(6804L, db.trackedDao().get(PKG)!!.installedVersionCode)
+        assertEquals(6804L, daos.tracked.get(PKG)!!.installedVersionCode)
         assertFalse(installer.called)
     }
 
@@ -85,7 +60,7 @@ class UpdateFlowTest {
 
         assertEquals(UpdateOutcome.Failed("签名已变更"), outcome)
         assertFalse(installer.called)
-        assertEquals("anchor", db.trackedDao().get(PKG)!!.signature)
+        assertEquals("anchor", daos.tracked.get(PKG)!!.signature)
     }
 
     @Test
@@ -100,7 +75,7 @@ class UpdateFlowTest {
         val outcome = repo.updateOne(PKG)
 
         assertEquals(UpdateOutcome.Cancelled, outcome)
-        val tracked = db.trackedDao().get(PKG)!!
+        val tracked = daos.tracked.get(PKG)!!
         assertEquals(6804L, tracked.installedVersionCode)
         assertEquals("FOLLOW", tracked.policy)
     }
@@ -114,7 +89,7 @@ class UpdateFlowTest {
         val outcome = repo.updateOne(PKG)
 
         assertEquals(UpdateOutcome.Success, outcome)
-        val tracked = db.trackedDao().get(PKG)!!
+        val tracked = daos.tracked.get(PKG)!!
         assertEquals(7000L, tracked.installedVersionCode)
         assertEquals("anchor", tracked.signature)
         assertEquals("FOLLOW", tracked.policy)
@@ -127,18 +102,18 @@ class UpdateFlowTest {
         installer: Installer,
         fingerprint: (File) -> String = { "anchor" },
     ) = Repository(
-        sourceDao = db.sourceDao(),
-        entryDao = db.entryDao(),
-        trackedDao = db.trackedDao(),
+        sourceDao = daos.sources,
+        entryDao = daos.entries,
+        trackedDao = daos.tracked,
         engine = engine,
         scanner = FakeScanner(),
         installer = installer,
-        downloadsDir = File(ApplicationProvider.getApplicationContext<Context>().cacheDir, "downloads-test"),
+        downloadsDir = downloads,
         apkFingerprint = fingerprint,
     )
 
     private suspend fun seed(policy: Policy, skipVersionCode: Long = 0L) {
-        db.sourceDao().upsert(
+        daos.sources.upsert(
             SourceEntity(
                 url = SOURCE_URL,
                 name = "bucket-a",
@@ -148,7 +123,7 @@ class UpdateFlowTest {
                 addedOrder = 0,
             ),
         )
-        db.entryDao().replaceForSource(
+        daos.entries.replaceForSource(
             SOURCE_URL,
             listOf(
                 EntryEntity(
@@ -164,7 +139,7 @@ class UpdateFlowTest {
                 ),
             ),
         )
-        db.trackedDao().upsert(
+        daos.tracked.upsert(
             TrackedEntity(
                 packageName = PKG,
                 policy = policy.name,

@@ -1,11 +1,8 @@
 package dev.scooph.ui.sources
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
+import dev.scooph.data.FakeDaos
 import dev.scooph.data.Repository
 import dev.scooph.data.db.SourceEntity
-import dev.scooph.data.db.TestDatabase
-import dev.scooph.data.db.TestDatabaseHandle
 import dev.scooph.data.db.TrackedEntity
 import dev.scooph.engine.EngineGateway
 import dev.scooph.engine.FetchResultDto
@@ -27,10 +24,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 
 /**
  * 来源页（计划 Task 22）。
@@ -38,9 +31,6 @@ import org.robolectric.annotation.SQLiteMode
  * ViewModel 只依赖 [SourcesRepository]，非法地址在进仓库之前就被挡住；
  * 删除最后一个来源不影响 `tracked` 记录——数据属于设备，不属于 bucket。
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class SourcesViewModelTest {
 
     private val scope = CoroutineScope(Dispatchers.Unconfined)
@@ -90,51 +80,44 @@ class SourcesViewModelTest {
 
     @Test
     fun `the last source can be removed without losing tracked rows`() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val handle: TestDatabaseHandle = TestDatabase.create(context)
-        try {
-            val repository = realRepository(handle)
-            handle.db.sourceDao().upsert(
-                SourceEntity(
-                    url = URL,
-                    name = "bucket",
-                    lastSyncAt = 0L,
-                    lastCommit = null,
-                    status = "OK",
-                    addedOrder = 0,
-                ),
+        val daos = FakeDaos()
+        val repository =
+            Repository(
+                sourceDao = daos.sources,
+                entryDao = daos.entries,
+                trackedDao = daos.tracked,
+                engine = NoopEngine(),
+                scanner = NoopScanner(),
             )
-            handle.db.trackedDao().upsert(
-                TrackedEntity(
-                    packageName = "com.example.app",
-                    policy = "FOLLOW",
-                    skipVersionCode = 0L,
-                    installedVersionCode = 1L,
-                    signature = "sig",
-                    installedAt = 1L,
-                    lastCheckedAt = 1L,
-                    lastError = null,
-                ),
-            )
-
-            repository.remove(URL)
-
-            assertTrue(handle.db.sourceDao().observeAll().first().isEmpty())
-            // 追踪记录属于设备：来源没了也还在，只是状态变成 NO_SOURCE。
-            assertNotNull(handle.db.trackedDao().get("com.example.app"))
-        } finally {
-            handle.release()
-        }
-    }
-
-    private fun realRepository(handle: TestDatabaseHandle) =
-        Repository(
-            sourceDao = handle.db.sourceDao(),
-            entryDao = handle.db.entryDao(),
-            trackedDao = handle.db.trackedDao(),
-            engine = NoopEngine(),
-            scanner = NoopScanner(),
+        daos.sources.upsert(
+            SourceEntity(
+                url = URL,
+                name = "bucket",
+                lastSyncAt = 0L,
+                lastCommit = null,
+                status = "OK",
+                addedOrder = 0,
+            ),
         )
+        daos.tracked.upsert(
+            TrackedEntity(
+                packageName = "com.example.app",
+                policy = "FOLLOW",
+                skipVersionCode = 0L,
+                installedVersionCode = 1L,
+                signature = "sig",
+                installedAt = 1L,
+                lastCheckedAt = 1L,
+                lastError = null,
+            ),
+        )
+
+        repository.remove(URL)
+
+        assertTrue(daos.sources.observeAll().first().isEmpty())
+        // 追踪记录属于设备：来源没了也还在，只是状态变成 NO_SOURCE。
+        assertNotNull(daos.tracked.get("com.example.app"))
+    }
 
     private class FakeSourcesRepository(
         private val rows: MutableList<SourceRow> = mutableListOf(),

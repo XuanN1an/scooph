@@ -13,3 +13,6 @@ local.properties
 
 # 本机工具链（不随仓库分发）
 .toolchain/
+
+# JVM 崩溃转储（Robolectric 原生库偶发）
+hs_err_pid*.log

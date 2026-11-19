@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
+import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -41,7 +42,10 @@ class AndroidInstaller(private val context: Context) : Installer {
         val params =
             PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                 setAppPackageName(packageName)
-                setInstallerPackageName(context.packageName)
+                // setInstallerPackageName 是 API 34 才有的；更早的版本由系统推断。
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    setInstallerPackageName(context.packageName)
+                }
             }
         val sessionId = installer.createSession(params)
         return try {
