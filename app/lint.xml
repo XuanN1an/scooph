@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  QUERY_ALL_PACKAGES 是 spec §13 明确要求的权限：扫描已装应用、生成
+  (packageName, versionCode, signature) 快照是应用的核心功能。本应用不分发
+  到 Play，不需要用 <queries> 收敛可见性，因此关闭这条 lint 提示。
+-->
+<lint>
+    <issue id="QueryAllPackagesPermission" severity="ignore" />
+</lint>
