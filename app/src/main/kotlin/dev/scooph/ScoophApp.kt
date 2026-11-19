@@ -1,19 +1,29 @@
 package dev.scooph
 
 import android.app.Application
+import android.util.Log
 import androidx.room.Room
 import dev.scooph.data.Repository
 import dev.scooph.data.db.AppDatabase
 import dev.scooph.engine.EngineFacade
 import dev.scooph.scan.AndroidPackageScanner
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
  * 进程级单例（spec §7）：数据库、Go 引擎与编排层只在这里各建一次。
  *
- * Task 11 只需要 [Repository]；Task 12 会在这里接默认 bucket。
+ * 首次启动在 IO 作用域里接上官方 bucket（Task 12）；失败只记日志，
+ * 不弹任何东西，主屏照常打开。
  */
 class ScoophApp : Application() {
+
+    /** 进程级 IO 作用域：跑不需要 UI 返回值的后台任务。 */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val database: AppDatabase by lazy {
         Room.databaseBuilder(applicationContext, AppDatabase::class.java, "scooph.db").build()
@@ -27,5 +37,23 @@ class ScoophApp : Application() {
             engine = EngineFacade(File(filesDir, "engine")),
             scanner = AndroidPackageScanner(packageManager),
         )
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        appScope.launch {
+            try {
+                repository.ensureDefaultSource()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 首次同步失败不是崩溃点：来源状态会标 ERROR，主屏照常打开。
+                Log.w(TAG, "默认 bucket 初始化失败", e)
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG = "ScoophApp"
     }
 }

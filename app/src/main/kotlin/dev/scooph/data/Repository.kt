@@ -104,6 +104,32 @@ class Repository(
         }
     }
 
+    /**
+     * 首次启动接入官方 bucket（spec §8 / 计划 Task 12）。
+     *
+     * `sources` 为空时插入 [DEFAULT_BUCKET_URL] 并同步一次；已有任意来源时
+     * 什么都不做，重复调用不会插入第二条。与手动添加的来源走同一条 [syncOne]，
+     * 同步失败只把来源标成 ERROR，不向调用方抛出。
+     */
+    suspend fun ensureDefaultSource() = withContext(Dispatchers.IO) {
+        if (sourceDao.observeAll().first().isNotEmpty()) return@withContext
+
+        val now = System.currentTimeMillis()
+        val source =
+            SourceEntity(
+                url = DEFAULT_BUCKET_URL,
+                name = DEFAULT_BUCKET_NAME,
+                lastSyncAt = 0L,
+                lastCommit = null,
+                status = STATUS_PENDING,
+                addedOrder = 0,
+            )
+        // 先落一行再同步：进程在同步中途被杀，下次启动也能看到这个来源，
+        // 不会无限重复「空表 → 插入」。
+        sourceDao.upsert(source)
+        syncOne(source, now)
+    }
+
     /** 单个来源同步失败时保留上一次成功的条目，只更新来源状态（spec §10.1）。 */
     private suspend fun syncOne(source: SourceEntity, now: Long) {
         try {
@@ -204,5 +230,6 @@ class Repository(
     private companion object {
         const val STATUS_OK = "OK"
         const val STATUS_ERROR = "ERROR"
+        const val STATUS_PENDING = "PENDING"
     }
 }
