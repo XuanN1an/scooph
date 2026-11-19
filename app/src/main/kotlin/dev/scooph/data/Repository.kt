@@ -18,6 +18,8 @@ import dev.scooph.engine.PlanItemDto
 import dev.scooph.engine.PlanRequestDto
 import dev.scooph.scan.InstalledApp
 import dev.scooph.scan.PackageScanner
+import dev.scooph.ui.detail.DetailRepository
+import dev.scooph.ui.detail.DetailUiState
 import dev.scooph.ui.main.MainRow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +49,7 @@ class Repository(
     private val trackedDao: TrackedDao,
     private val engine: EngineFacade,
     private val scanner: PackageScanner,
-) : MainRepository {
+) : MainRepository, DetailRepository {
 
     override suspend fun refresh(): List<MainRow> = withContext(Dispatchers.IO) {
         val sources = sourceDao.observeAll().first()
@@ -102,6 +104,71 @@ class Repository(
                 error = tracked.lastError,
             )
         }
+    }
+
+    override suspend fun load(packageName: String): DetailUiState? = withContext(Dispatchers.IO) {
+        val tracked = trackedDao.get(packageName) ?: return@withContext null
+        val sources = sourceDao.observeAll().first()
+        val entries = entryDao.observeAll().first().filter { it.packageName == packageName }
+
+        val policy = tracked.policy.toPolicy() ?: Policy.FOLLOW
+        val resolved =
+            if (entries.isEmpty()) {
+                null
+            } else {
+                engine
+                    .plan(
+                        PlanRequestDto(
+                            candidates = entries.map { it.toCandidate(sources) },
+                            installed =
+                                listOf(
+                                    InstalledSnapshotDto(
+                                        packageName = packageName,
+                                        versionCode = tracked.installedVersionCode,
+                                    ),
+                                ),
+                        ),
+                    ).items
+                    .firstOrNull()
+            }
+        val relation = resolved?.relation?.toRelation()
+        val entryVersionCode = resolved?.entryVersionCode ?: 0L
+
+        val state =
+            derive(
+                policy = policy,
+                relation = relation,
+                skipVersionCode = tracked.skipVersionCode,
+                entryVersionCode = entryVersionCode,
+            )
+
+        val effectiveEntry =
+            resolved?.sourceId?.let { sourceId -> entries.firstOrNull { it.sourceId == sourceId } }
+                ?: entries.maxByOrNull { it.versionCode }
+
+        val name = resolved?.name?.takeIf { it.isNotBlank() } ?: effectiveEntry?.name ?: packageName
+        val installedVersionName =
+            if (tracked.installedVersionCode > 0) tracked.installedVersionCode.toString() else ""
+        val entryVersionName =
+            effectiveEntry?.versionName?.takeIf { it.isNotBlank() }
+                ?: if (entryVersionCode > 0) entryVersionCode.toString() else ""
+        val sourceId = resolved?.sourceId ?: effectiveEntry?.sourceId
+        val sourceLabel =
+            sourceId?.let {
+                sources.firstOrNull { source -> source.url == it }?.name?.takeIf(String::isNotBlank) ?: it
+            }.orEmpty()
+
+        DetailUiState(
+            packageName = packageName,
+            name = name,
+            state = state,
+            installedVersionName = installedVersionName,
+            entryVersionName = entryVersionName,
+            policy = policy,
+            skipVersionCode = tracked.skipVersionCode,
+            sourceLabel = sourceLabel,
+            signatureChanged = tracked.lastError?.contains("签名") == true,
+        )
     }
 
     /**

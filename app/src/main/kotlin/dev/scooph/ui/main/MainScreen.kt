@@ -1,6 +1,7 @@
 package dev.scooph.ui.main
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,14 +42,20 @@ import dev.scooph.domain.DerivedState
  * 「来源」与「全部更新」的动作留给后续任务（Task 22 / Task 19），这里只占位。
  */
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onOpenDetail: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.refresh() }
-    MainContent(state)
+    MainContent(state = state, onOpenDetail = onOpenDetail)
 }
 
 @Composable
-private fun MainContent(state: MainUiState) {
+private fun MainContent(
+    state: MainUiState,
+    onOpenDetail: (String) -> Unit,
+) {
     Column(
         modifier =
             Modifier
@@ -82,14 +89,18 @@ private fun MainContent(state: MainUiState) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            mainGroup(title = "可更新", rows = state.updatable)
-            mainGroup(title = "已是最新", rows = state.upToDate)
-            mainGroup(title = "已忽略", rows = state.ignored)
+            mainGroup(title = "可更新", rows = state.updatable, onOpenDetail = onOpenDetail)
+            mainGroup(title = "已是最新", rows = state.upToDate, onOpenDetail = onOpenDetail)
+            mainGroup(title = "已忽略", rows = state.ignored, onOpenDetail = onOpenDetail)
         }
     }
 }
 
-private fun LazyListScope.mainGroup(title: String, rows: List<MainRow>) {
+private fun LazyListScope.mainGroup(
+    title: String,
+    rows: List<MainRow>,
+    onOpenDetail: (String) -> Unit,
+) {
     if (rows.isEmpty()) return
     item(key = "header-$title") {
         Text(
@@ -100,14 +111,25 @@ private fun LazyListScope.mainGroup(title: String, rows: List<MainRow>) {
         )
     }
     items(rows, key = { "$title-${it.packageName}" }) { row ->
-        MainRowItem(row)
+        MainRowItem(
+            row = row,
+            onClick = { onOpenDetail(row.packageName) },
+        )
     }
 }
 
 @Composable
-private fun MainRowItem(row: MainRow) {
+private fun MainRowItem(
+    row: MainRow,
+    onClick: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        // 先 clip 再 clickable，水波纹不会溢出圆角。
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surface,
     ) {
@@ -148,6 +170,12 @@ private fun MainRowItem(row: MainRow) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "›",
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
