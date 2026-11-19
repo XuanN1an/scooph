@@ -4,3 +4,9 @@
 build/
 local.properties
 .DS_Store
+
+# 本机工具链（不随仓库分发）
+.gradle-home/
+.android-sdk/
+.android-home/
+.kotlin/
