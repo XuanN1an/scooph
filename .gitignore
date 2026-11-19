@@ -10,3 +10,6 @@ local.properties
 .android-sdk/
 .android-home/
 .kotlin/
+
+# 本机工具链（不随仓库分发）
+.toolchain/

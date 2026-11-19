@@ -48,6 +48,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Go 引擎：gomobile bind 产出的 AAR，随 APK 一起打包 lib/*/libgojni.so。
+    implementation(files("../engine/build/scooph-engine.aar"))
+
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
