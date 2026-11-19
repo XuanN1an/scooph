@@ -1,7 +1,6 @@
 package dev.scooph.data.db
 
 import android.content.Context
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -27,16 +26,19 @@ import org.robolectric.annotation.SQLiteMode
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class EntityMappingTest {
 
-    private lateinit var db: AppDatabase
+    private lateinit var handle: TestDatabaseHandle
+
+    private val db: AppDatabase
+        get() = handle.db
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        handle = TestDatabase.create(context)
     }
 
     @After
-    fun tearDown() = db.close()
+    fun tearDown() = handle.release()
 
     @Test
     fun `same package from different sources coexists`() = runBlocking {

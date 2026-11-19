@@ -266,7 +266,13 @@ class Repository(
                 } else {
                     current.copy(
                         installedVersionCode = item.installedVersionCode,
-                        signature = current.signature ?: app.signature,
+                        // spec §10.3：扫描即建锚；但 UNTRACKED 是墓碑，不为它补锚点。
+                        signature =
+                            if (current.policy == Policy.UNTRACKED.name) {
+                                current.signature
+                            } else {
+                                current.signature ?: app.signature
+                            },
                         lastCheckedAt = now,
                     )
                 }

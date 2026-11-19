@@ -6,6 +6,7 @@ import androidx.room.Room
 import dev.scooph.data.Repository
 import dev.scooph.data.db.AppDatabase
 import dev.scooph.engine.EngineFacade
+import dev.scooph.install.ApkInspector
 import dev.scooph.scan.AndroidPackageScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,8 @@ class ScoophApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 签名校验读 APK 文件时要用 PackageManager（v2/v3 签名没有 META-INF 证书）。
+        ApkInspector.init(packageManager)
         appScope.launch {
             try {
                 repository.ensureDefaultSource()

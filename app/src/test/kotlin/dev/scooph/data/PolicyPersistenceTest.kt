@@ -1,9 +1,10 @@
 package dev.scooph.data
 
 import android.content.Context
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.scooph.data.db.AppDatabase
+import dev.scooph.data.db.TestDatabase
+import dev.scooph.data.db.TestDatabaseHandle
 import dev.scooph.data.db.EntryEntity
 import dev.scooph.data.db.SourceEntity
 import dev.scooph.data.db.TrackedEntity
@@ -41,16 +42,19 @@ import org.robolectric.annotation.SQLiteMode
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class PolicyPersistenceTest {
 
-    private lateinit var db: AppDatabase
+    private lateinit var handle: TestDatabaseHandle
+
+    private val db: AppDatabase
+        get() = handle.db
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        handle = TestDatabase.create(context)
     }
 
     @After
-    fun tearDown() = db.close()
+    fun tearDown() = handle.release()
 
     @Test
     fun `setPolicy stores SKIP_VERSION together with the skip version code`() = runBlocking {
