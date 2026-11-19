@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.scooph.domain.DerivedState
+import dev.scooph.ui.EmptyKind
+import dev.scooph.ui.EmptyStateLine
 
 /**
  * 条目页（spec §11.4 / 计划 Task 23）。
@@ -91,13 +93,17 @@ private fun EntriesContent(
             placeholder = { Text(text = "搜索", fontSize = 14.sp) },
             shape = RoundedCornerShape(12.dp),
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.rows, key = { it.packageName }) { row ->
-                EntryItem(row = row, onClick = { onRowClick(row) })
+        if (state.rows.isEmpty()) {
+            EmptyStateLine(EmptyKind.NO_MATCH)
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.rows, key = { it.packageName }) { row ->
+                    EntryItem(row = row, onClick = { onRowClick(row) })
+                }
             }
         }
     }

@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.scooph.ui.EmptyKind
+import dev.scooph.ui.EmptyStateLine
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -113,18 +115,22 @@ private fun SourcesContent(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.sources, key = { it.url }) { row ->
-                SourceItem(
-                    row = row,
-                    onClick = { onOpenEntries(row.url) },
-                    onSync = { onSync(row.url) },
-                    onRemove = { onRemove(row.url) },
-                )
+        if (state.sources.isEmpty()) {
+            EmptyStateLine(EmptyKind.NO_SOURCE)
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.sources, key = { it.url }) { row ->
+                    SourceItem(
+                        row = row,
+                        onClick = { onOpenEntries(row.url) },
+                        onSync = { onSync(row.url) },
+                        onRemove = { onRemove(row.url) },
+                    )
+                }
             }
         }
     }

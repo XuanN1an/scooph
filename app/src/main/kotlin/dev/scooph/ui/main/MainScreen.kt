@@ -34,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.scooph.install.QueueItem
+import dev.scooph.ui.EmptyKind
+import dev.scooph.ui.EmptyStateLine
 
 /**
  * 主屏（spec §11.1）：大标题「应用」，左上「来源」，右上「全部更新」，
@@ -93,14 +95,20 @@ private fun MainContent(
             fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            mainGroup("可更新", state.updatable, queueByPackage, onOpenDetail)
-            mainGroup("已是最新", state.upToDate, queueByPackage, onOpenDetail)
-            mainGroup("已忽略", state.ignored, queueByPackage, onOpenDetail)
+        val nothingToShow =
+            state.updatable.isEmpty() && state.upToDate.isEmpty() && state.ignored.isEmpty()
+        if (nothingToShow) {
+            EmptyStateLine(EmptyKind.NO_MATCH)
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                mainGroup("可更新", state.updatable, queueByPackage, onOpenDetail)
+                mainGroup("已是最新", state.upToDate, queueByPackage, onOpenDetail)
+                mainGroup("已忽略", state.ignored, queueByPackage, onOpenDetail)
+            }
         }
     }
 }
