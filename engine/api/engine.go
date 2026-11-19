@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/scooph/scooph/engine/bucket"
+	"github.com/scooph/scooph/engine/download"
 	"github.com/scooph/scooph/engine/manifest"
 	"github.com/scooph/scooph/engine/version"
 )
@@ -131,6 +132,20 @@ func (e *Engine) Plan(req string) (string, error) {
 	}{Items: items})
 	if err != nil {
 		return "", fmt.Errorf("api: marshal plan result: %w", err)
+	}
+	return string(out), nil
+}
+
+// Fetch 下载一个 APK 到 destPath 并校验 sha256，返回 JSON
+// {"path":"","size":0,"sha256":""}。失败时不留半截文件。
+func (e *Engine) Fetch(url, destPath, wantSHA256 string) (string, error) {
+	res, err := download.Fetch(url, destPath, wantSHA256, nil)
+	if err != nil {
+		return "", err
+	}
+	out, err := json.Marshal(res)
+	if err != nil {
+		return "", fmt.Errorf("api: marshal fetch result: %w", err)
 	}
 	return string(out), nil
 }
