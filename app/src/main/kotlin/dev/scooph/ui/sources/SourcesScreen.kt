@@ -1,6 +1,7 @@
 package dev.scooph.ui.sources
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import java.util.concurrent.TimeUnit
 fun SourcesScreen(
     viewModel: SourcesViewModel,
     onBack: () -> Unit,
+    onOpenEntries: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     SourcesContent(
@@ -50,6 +53,7 @@ fun SourcesScreen(
         onAdd = viewModel::add,
         onSync = viewModel::sync,
         onRemove = viewModel::remove,
+        onOpenEntries = onOpenEntries,
     )
 }
 
@@ -61,6 +65,7 @@ private fun SourcesContent(
     onAdd: () -> Unit,
     onSync: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onOpenEntries: (String) -> Unit,
 ) {
     Column(
         modifier =
@@ -116,6 +121,7 @@ private fun SourcesContent(
             items(state.sources, key = { it.url }) { row ->
                 SourceItem(
                     row = row,
+                    onClick = { onOpenEntries(row.url) },
                     onSync = { onSync(row.url) },
                     onRemove = { onRemove(row.url) },
                 )
@@ -127,11 +133,16 @@ private fun SourcesContent(
 @Composable
 private fun SourceItem(
     row: SourceRow,
+    onClick: () -> Unit,
     onSync: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surface,
     ) {

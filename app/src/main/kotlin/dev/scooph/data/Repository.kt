@@ -24,6 +24,8 @@ import dev.scooph.scan.PackageScanner
 import dev.scooph.ui.detail.DetailRepository
 import dev.scooph.ui.detail.DetailUiState
 import dev.scooph.ui.main.MainRow
+import dev.scooph.ui.sources.EntriesRepository
+import dev.scooph.ui.sources.EntryRow
 import dev.scooph.ui.sources.SourceRow
 import dev.scooph.ui.sources.SourcesRepository
 import kotlinx.coroutines.CancellationException
@@ -73,7 +75,7 @@ class Repository(
     private val installer: Installer? = null,
     private val downloadsDir: File = File(System.getProperty("java.io.tmpdir"), "scooph-downloads"),
     private val apkFingerprint: (File) -> String = ApkInspector::fingerprintOf,
-) : MainRepository, DetailRepository, SourcesRepository {
+) : MainRepository, DetailRepository, SourcesRepository, EntriesRepository {
 
     override suspend fun refresh(): List<MainRow> = withContext(Dispatchers.IO) {
         val sources = sourceDao.observeAll().first()
@@ -259,6 +261,21 @@ class Repository(
         withContext(Dispatchers.IO) {
             sourceDao.observeAll().first().firstOrNull { it.url == url }?.let { source ->
                 syncOne(source, System.currentTimeMillis())
+            }
+        }
+
+    override suspend fun entries(sourceUrl: String): List<EntryRow> =
+        withContext(Dispatchers.IO) {
+            val entries = entryDao.observeAll().first().filter { it.sourceId == sourceUrl }
+            val installed = scanner.scan().associateBy { it.packageName }
+            entries.map { entry ->
+                EntryRow(
+                    packageName = entry.packageName,
+                    name = entry.name,
+                    versionName = entry.versionName,
+                    installed = installed.containsKey(entry.packageName),
+                    state = null,
+                )
             }
         }
 

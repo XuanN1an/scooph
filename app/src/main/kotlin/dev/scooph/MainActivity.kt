@@ -14,6 +14,8 @@ import dev.scooph.ui.detail.DetailScreen
 import dev.scooph.ui.detail.DetailViewModel
 import dev.scooph.ui.main.MainScreen
 import dev.scooph.ui.main.MainViewModel
+import dev.scooph.ui.sources.EntriesScreen
+import dev.scooph.ui.sources.EntriesViewModel
 import dev.scooph.ui.sources.SourcesScreen
 import dev.scooph.ui.sources.SourcesViewModel
 import dev.scooph.ui.theme.ScoophTheme
@@ -41,6 +43,23 @@ class MainActivity : ComponentActivity() {
                         SourcesScreen(
                             viewModel = sourcesViewModel,
                             onBack = { route = ROUTE_MAIN },
+                            onOpenEntries = { url -> route = ROUTE_ENTRIES_PREFIX + url },
+                        )
+                    }
+
+                    route.startsWith(ROUTE_ENTRIES_PREFIX) -> {
+                        val url = route.removePrefix(ROUTE_ENTRIES_PREFIX)
+                        val entriesViewModel: EntriesViewModel =
+                            viewModel(
+                                key = "entries-$url",
+                                factory = EntriesViewModel.factory(application, url),
+                            )
+                        EntriesScreen(
+                            viewModel = entriesViewModel,
+                            onBack = { route = ROUTE_SOURCES },
+                            onOpenDetail = { packageName ->
+                                route = ROUTE_DETAIL_PREFIX + packageName
+                            },
                         )
                     }
 
@@ -72,6 +91,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val ROUTE_MAIN = "main"
         const val ROUTE_SOURCES = "sources"
+        const val ROUTE_ENTRIES_PREFIX = "entries:"
         const val ROUTE_DETAIL_PREFIX = "detail:"
     }
 }
