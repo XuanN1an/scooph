@@ -10,8 +10,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** 队列里的一项：只记包名与状态，不持有已下载文件（进程死亡即消失）。 */
-data class QueueItem(val packageName: String, val state: QueueState)
+/**
+ * 队列里的一项：只记包名、状态与下载百分比，不持有已下载文件（进程死亡即消失）。
+ *
+ * [progressPercent] 只在 [QueueState.Downloading] 且服务端给了总大小时有值。
+ */
+data class QueueItem(
+    val packageName: String,
+    val state: QueueState,
+    val progressPercent: Int? = null,
+)
 
 /** 一键更新时单行的状态（spec §10.4）。 */
 sealed interface QueueState {
@@ -58,7 +66,11 @@ class InstallQueue(
                     setState(packageName, QueueState.Downloading)
                     val outcome =
                         try {
-                            update(packageName) { _, _ -> }
+                            update(packageName) { done, total ->
+                                if (total > 0) {
+                                    setProgress(packageName, ((done * 100) / total).toInt())
+                                }
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -97,7 +109,19 @@ class InstallQueue(
     private fun setState(packageName: String, state: QueueState) {
         _items.value =
             _items.value.map { item ->
-                if (item.packageName == packageName) item.copy(state = state) else item
+                if (item.packageName != packageName) {
+                    item
+                } else {
+                    // 进入终态后不再保留百分比。
+                    item.copy(state = state, progressPercent = null)
+                }
+            }
+    }
+
+    private fun setProgress(packageName: String, percent: Int) {
+        _items.value =
+            _items.value.map { item ->
+                if (item.packageName == packageName) item.copy(progressPercent = percent) else item
             }
     }
 

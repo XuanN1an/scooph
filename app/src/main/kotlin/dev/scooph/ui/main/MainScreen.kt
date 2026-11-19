@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.scooph.domain.DerivedState
+import dev.scooph.install.QueueItem
 
 /**
  * 主屏（spec §11.1）：大标题「应用」，左上「来源」，右上「全部更新」，
@@ -48,14 +48,20 @@ fun MainScreen(
 ) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.refresh() }
-    MainContent(state = state, onOpenDetail = onOpenDetail)
+    MainContent(
+        state = state,
+        onOpenDetail = onOpenDetail,
+        onUpdateAll = viewModel::updateAll,
+    )
 }
 
 @Composable
 private fun MainContent(
     state: MainUiState,
     onOpenDetail: (String) -> Unit,
+    onUpdateAll: () -> Unit,
 ) {
+    val queueByPackage = state.queue.associateBy { it.packageName }
     Column(
         modifier =
             Modifier
@@ -72,10 +78,10 @@ private fun MainContent(
             }
             Spacer(Modifier.weight(1f))
             TextButton(
-                onClick = {},
-                enabled = state.updatable.isNotEmpty(),
+                onClick = onUpdateAll,
+                enabled = state.updatable.isNotEmpty() && !state.active,
             ) {
-                Text(text = "全部更新", fontSize = 14.sp)
+                Text(text = updateLabel(state), fontSize = 14.sp)
             }
         }
         Text(
@@ -89,9 +95,9 @@ private fun MainContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            mainGroup(title = "可更新", rows = state.updatable, onOpenDetail = onOpenDetail)
-            mainGroup(title = "已是最新", rows = state.upToDate, onOpenDetail = onOpenDetail)
-            mainGroup(title = "已忽略", rows = state.ignored, onOpenDetail = onOpenDetail)
+            mainGroup("可更新", state.updatable, queueByPackage, onOpenDetail)
+            mainGroup("已是最新", state.upToDate, queueByPackage, onOpenDetail)
+            mainGroup("已忽略", state.ignored, queueByPackage, onOpenDetail)
         }
     }
 }
@@ -99,6 +105,7 @@ private fun MainContent(
 private fun LazyListScope.mainGroup(
     title: String,
     rows: List<MainRow>,
+    queueByPackage: Map<String, QueueItem>,
     onOpenDetail: (String) -> Unit,
 ) {
     if (rows.isEmpty()) return
@@ -113,6 +120,7 @@ private fun LazyListScope.mainGroup(
     items(rows, key = { "$title-${it.packageName}" }) { row ->
         MainRowItem(
             row = row,
+            subtitle = subtitleFor(row, queueByPackage[row.packageName]),
             onClick = { onOpenDetail(row.packageName) },
         )
     }
@@ -121,6 +129,7 @@ private fun LazyListScope.mainGroup(
 @Composable
 private fun MainRowItem(
     row: MainRow,
+    subtitle: String,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -163,7 +172,7 @@ private fun MainRowItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = rowSubtitle(row),
+                    text = subtitle,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -179,19 +188,3 @@ private fun MainRowItem(
         }
     }
 }
-
-/** 副行只显示版本变化或状态说明，不需要额外提示文案。 */
-private fun rowSubtitle(row: MainRow): String =
-    when {
-        row.error != null -> row.error
-        row.state == DerivedState.UPDATABLE ->
-            if (row.installedVersionName.isBlank()) {
-                row.entryVersionName
-            } else {
-                "${row.installedVersionName} → ${row.entryVersionName}"
-            }
-        row.state == DerivedState.UP_TO_DATE -> row.entryVersionName
-        row.state == DerivedState.AHEAD -> "本机版本更新"
-        row.state == DerivedState.SKIPPED -> "已跳过 ${row.entryVersionName}"
-        else -> "已忽略"
-    }
