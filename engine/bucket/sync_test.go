@@ -107,6 +107,26 @@ func (f *gitFixture) head(t *testing.T) string {
 	return runGit(t, f.work, "rev-parse", "HEAD")
 }
 
+// 坏掉的缓存目录（半截克隆/超时残留）应该被清掉重来，而不是永远失败。
+func TestSyncRecoversFromDirtyCache(t *testing.T) {
+	f := newGitFixture(t, appsFixture("com.a.json"))
+	cache := filepath.Join(t.TempDir(), "cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "junk"), []byte("broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Sync(cache, f.remote)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if len(res.Files) != 1 || res.Files[0] != "apps/com.a.json" {
+		t.Fatalf("files = %v, want [apps/com.a.json]", res.Files)
+	}
+}
+
 // Result 是跨语言 JSON 面的一部分，字段名锁定为 commit/files/empty。
 func TestResultJSONFieldNames(t *testing.T) {
 	b, err := json.Marshal(Result{Commit: "abc123", Files: []string{"apps/a.json"}, Empty: false})

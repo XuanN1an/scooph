@@ -33,7 +33,21 @@ var ErrPrivateRepo = errors.New("private repository not supported")
 // Sync 把 dir 同步到 url 指向的 bucket 仓库。
 // dir 不存在（或还不是 git 仓库）时浅克隆；已经是仓库时 fetch 并快进到 origin/HEAD。
 // url 既可以是 https URL，也可以是本机路径（测试用）。
+//
+// 同步失败时把缓存目录整个删掉重来一次：超时或被杀的拉取会留下半截仓库，
+// 不清掉的话之后每次同步都会失败（用户只能清数据恢复）。
 func Sync(dir, url string) (Result, error) {
+	res, err := syncWithTimeout(dir, url)
+	if err == nil {
+		return res, nil
+	}
+	if rmErr := os.RemoveAll(dir); rmErr != nil {
+		return Result{}, err
+	}
+	return syncWithTimeout(dir, url)
+}
+
+func syncWithTimeout(dir, url string) (Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 	defer cancel()
 
