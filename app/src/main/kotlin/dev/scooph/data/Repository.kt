@@ -331,8 +331,14 @@ class Repository(
             val prepared = prepareApk(packageName, entry, anchor, onProgress)
             if (prepared is Prepared.Failure) {
                 if (prepared.outcome == UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
-                    // 记下来，详情页据此显示「接受并更新」。
+                    // 记下来，详情页据此显示「接受并更新」；只保留这一份待接受的包。
                     trackedDao.upsert(tracked.copy(lastError = SIGNATURE_CHANGED))
+                    cleanupPackageCache(
+                        packageName,
+                        keep = File(downloadsDir, "$packageName-${entry.versionCode}.apk"),
+                    )
+                } else {
+                    cleanupPackageCache(packageName)
                 }
                 return@withContext prepared.outcome
             }
@@ -355,10 +361,8 @@ class Repository(
                 markInstalled(tracked, entry, ready.fingerprint)
                 outcome = UpdateOutcome.Success
             }
-            // 签名变更时保留 APK 给「接受并更新」复用；其余结束即删。
-            if (outcome != UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
-                ready.apk.delete()
-            }
+            // 走到这里说明安装流程已结束（成功/取消/超时）：同包缓存全部回收。
+            cleanupPackageCache(packageName)
             outcome
         }
 
@@ -419,10 +423,8 @@ class Repository(
                 createTracked(packageName, entry, ready.fingerprint)
                 outcome = UpdateOutcome.Success
             }
-            // 签名变更时保留 APK 给「接受并更新」复用；其余结束即删。
-            if (outcome != UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
-                ready.apk.delete()
-            }
+            // 首次安装没有「待接受」状态：结束后清掉这个包的所有缓存。
+            cleanupPackageCache(packageName)
             outcome
         }
 
@@ -549,6 +551,19 @@ class Repository(
                 }
             }
         }
+
+    /**
+     * 删除某个包在下载目录里的缓存（含 .part），可保留一份待接受的 APK。
+     *
+     * 缓存复用只认「同版本 + sha256 一致」；同包的其它文件都是过期数据。
+     */
+    private fun cleanupPackageCache(packageName: String, keep: File? = null) {
+        downloadsDir.listFiles()?.forEach { file ->
+            if (!file.isFile) return@forEach
+            if (keep != null && file.absolutePath == keep.absolutePath) return@forEach
+            if (file.name.startsWith("$packageName-")) file.delete()
+        }
+    }
 
     /** 与 `Plan()` 相同的仲裁：版本最高，其次添加顺序，最后来源 id。 */
     private suspend fun resolveEntry(

@@ -188,6 +188,55 @@ class UpdateFlowTest {
         assertEquals(0, secondEngine.fetchCalls)
     }
 
+    @Test
+    fun `a successful update removes every cached file for the package`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        File(downloads, "$PKG-6800.apk").apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(9))
+        }
+
+        repository(FakeEngine(fetchedSHA = ENTRY_SHA), FakeInstaller(InstallOutcome.Success)).updateOne(PKG)
+
+        assertTrue(downloads.listFiles().orEmpty().none { it.name.startsWith("$PKG-") })
+    }
+
+    @Test
+    fun `signature mismatch keeps only the pending apk and drops older caches`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        File(downloads, "$PKG-6800.apk").apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(9))
+        }
+
+        repository(
+            FakeEngine(fetchedSHA = ENTRY_SHA),
+            FakeInstaller(InstallOutcome.Success),
+            fingerprint = { "different" },
+        ).updateOne(PKG)
+
+        assertEquals(setOf("$PKG-7000.apk"), downloads.listFiles().orEmpty().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `accepting the signature change cleans the pending apk`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        repository(
+            FakeEngine(fetchedSHA = ENTRY_SHA),
+            FakeInstaller(InstallOutcome.Success),
+            fingerprint = { "different" },
+        ).updateOne(PKG)
+        assertTrue(File(downloads, "$PKG-7000.apk").isFile)
+
+        repository(
+            FakeEngine(fetchedSHA = ENTRY_SHA),
+            FakeInstaller(InstallOutcome.Success),
+            fingerprint = { "new-anchor" },
+        ).acceptAndUpdate(PKG) { _, _ -> }
+
+        assertTrue(downloads.listFiles().orEmpty().none { it.name.startsWith("$PKG-") })
+    }
+
     private fun repository(
         engine: EngineGateway,
         installer: Installer,
