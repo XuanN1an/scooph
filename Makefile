@@ -37,10 +37,10 @@ ifeq ($(strip $(GOBIN_DIR)),)
 GOBIN_DIR := $(shell $(GO) env GOPATH)/bin
 endif
 else
-# GOTMPDIR 放到仓库内：部分环境（沙箱/受限账户）下 C:\...\Temp 不可写，
-# go build 会以 "creating work dir: Access is denied" 失败。
+# GOTMPDIR 给 go 用；TMP/TEMP 给 gomobile 自己用（它用 os.MkdirTemp("", "gomobile-work-")）。
+# 部分环境（沙箱/受限账户）下 C:\...\Temp 不可写，这两个都必须指向仓库内。
 TOOLCHAIN_TMP := $(TOOLCHAIN)/tmp
-GO_ENV    := GOMODCACHE="$(TOOLCHAIN)/go-modcache" GOCACHE="$(TOOLCHAIN)/go-cache" GOPATH="$(TOOLCHAIN)/gopath" GOBIN="$(TOOLCHAIN)/gobin" GOTMPDIR="$(TOOLCHAIN_TMP)" GOTOOLCHAIN=local
+GO_ENV    := GOMODCACHE="$(TOOLCHAIN)/go-modcache" GOCACHE="$(TOOLCHAIN)/go-cache" GOPATH="$(TOOLCHAIN)/gopath" GOBIN="$(TOOLCHAIN)/gobin" GOTMPDIR="$(TOOLCHAIN_TMP)" TMP="$(TOOLCHAIN_TMP)" TEMP="$(TOOLCHAIN_TMP)" GOTOOLCHAIN=local
 GOBIN_DIR := $(TOOLCHAIN)/gobin
 endif
 
