@@ -65,8 +65,33 @@ SCOOPH_ROOM_TESTS=1 ./gradlew :app:testDebugUnitTest   # 需要真 SQLite 测试
 
 ## 签名
 
-- 默认只有 debug 构建，自动使用 `~/.android/debug.keystore`，可直接安装；
-- `assembleRelease` 产出未签名 APK。分发前在 `app/build.gradle.kts` 里加 `signingConfigs` 并指给 release。
+- debug 构建自动使用 `~/.android/debug.keystore`，可直接安装；
+- release 签名读仓库根目录的 `release.jks`（**不入库**，`.gitignore` 已忽略 `*.jks`），密码只从环境变量读：
+
+```bash
+# Git Bash
+export SCOOPH_STORE_PASSWORD='...'
+export SCOOPH_KEY_PASSWORD='...'
+export SCOOPH_KEY_ALIAS='scooph'      # 与生成 keystore 时的 alias 一致
+./gradlew :app:assembleRelease -PscoophVersionCode=7 -PscoophVersionName=0.1.6
+```
+
+```powershell
+# PowerShell
+$env:SCOOPH_STORE_PASSWORD = "..."
+$env:SCOOPH_KEY_PASSWORD = "..."
+$env:SCOOPH_KEY_ALIAS = "scooph"
+.\gradlew :app:assembleRelease -PscoophVersionCode=7 -PscoophVersionName=0.1.6
+```
+
+- 密码没设置时 release 仍能构建，但产物是 `app-release-unsigned.apk`；
+- 签名成功后产物是 `app/build/outputs/apk/release/app-release.apk`，验证：
+
+```bash
+.apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+```
+
+> `release.jks` 丢了就再也无法给已安装用户发同签名更新，务必离线备份。
 
 ## 常见问题
 

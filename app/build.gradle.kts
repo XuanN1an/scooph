@@ -24,6 +24,31 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // 发布签名：release.jks 不入库（.gitignore），密码只从环境变量读。
+    // 没配好 keystore/密码时 release 仍产出未签名 APK，不影响日常构建。
+    signingConfigs {
+        create("release") {
+            val keystore = rootProject.file("release.jks")
+            if (keystore.exists()) {
+                storeFile = keystore
+                storePassword = System.getenv("SCOOPH_STORE_PASSWORD")
+                keyAlias = System.getenv("SCOOPH_KEY_ALIAS") ?: "scooph"
+                keyPassword = System.getenv("SCOOPH_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            val keystore = rootProject.file("release.jks")
+            val storePassword = System.getenv("SCOOPH_STORE_PASSWORD")
+            val keyPassword = System.getenv("SCOOPH_KEY_PASSWORD")
+            if (keystore.exists() && !storePassword.isNullOrBlank() && !keyPassword.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
     kotlinOptions {
         jvmTarget = "17"
     }
