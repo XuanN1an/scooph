@@ -13,8 +13,10 @@ android {
         applicationId = "dev.scooph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // 验收自更新时需要打一个更高 versionCode 的包：
+        //   ./gradlew :app:assembleDebug -PscoophVersionCode=2 -PscoophVersionName=0.1.1
+        versionCode = providers.gradleProperty("scoophVersionCode").getOrElse("1").toInt()
+        versionName = providers.gradleProperty("scoophVersionName").getOrElse("0.1.0")
     }
 
     compileOptions {

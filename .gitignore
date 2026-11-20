@@ -16,3 +16,6 @@ local.properties
 
 # JVM 崩溃转储（Robolectric 原生库偶发）
 hs_err_pid*.log
+
+# 单独的 bucket 仓库（第二个 Git 仓库，见 docs/specs §8）
+/scooph-bucket/
