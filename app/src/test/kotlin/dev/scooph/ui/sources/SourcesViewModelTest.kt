@@ -79,6 +79,16 @@ class SourcesViewModelTest {
     }
 
     @Test
+    fun `clearing the download cache reports how much was freed`() {
+        val vm = SourcesViewModel(FakeSourcesRepository(), scope)
+
+        vm.clearCache()
+
+        assertEquals(4096L, vm.state.value.cacheCleared)
+        assertEquals(0L, vm.state.value.cacheBytes)
+    }
+
+    @Test
     fun `the last source can be removed without losing tracked rows`() = runBlocking {
         val daos = FakeDaos()
         val repository =
@@ -140,6 +150,10 @@ class SourcesViewModelTest {
         }
 
         override suspend fun sync(url: String) = Unit
+
+        override suspend fun cacheSize(): Long = 4096L
+
+        override suspend fun clearCache(): Long = 4096L
     }
 
     private class NoopEngine : EngineGateway {

@@ -284,6 +284,19 @@ class Repository(
             }
         }
 
+    override suspend fun cacheSize(): Long =
+        withContext(Dispatchers.IO) {
+            downloadsDir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+        }
+
+    override suspend fun clearCache(): Long =
+        withContext(Dispatchers.IO) {
+            val files = downloadsDir.listFiles()?.filter { it.isFile }.orEmpty()
+            val freed = files.sumOf { it.length() }
+            files.forEach { it.delete() }
+            freed
+        }
+
     private fun bucketName(url: String): String =
         url.substringAfterLast('/').removeSuffix(".git").ifBlank { url }
 

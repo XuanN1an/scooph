@@ -3,6 +3,7 @@ package dev.scooph.ui.sources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -56,6 +57,7 @@ fun SourcesScreen(
         onSync = viewModel::sync,
         onRemove = viewModel::remove,
         onOpenEntries = onOpenEntries,
+        onClearCache = viewModel::clearCache,
     )
 }
 
@@ -68,6 +70,7 @@ private fun SourcesContent(
     onSync: (String) -> Unit,
     onRemove: (String) -> Unit,
     onOpenEntries: (String) -> Unit,
+    onClearCache: () -> Unit,
 ) {
     Column(
         modifier =
@@ -116,10 +119,12 @@ private fun SourcesContent(
             )
         }
         if (state.sources.isEmpty()) {
-            EmptyStateLine(EmptyKind.NO_SOURCE)
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                EmptyStateLine(EmptyKind.NO_SOURCE)
+            }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -133,8 +138,44 @@ private fun SourcesContent(
                 }
             }
         }
+        CacheRow(
+            cacheBytes = state.cacheBytes,
+            clearedBytes = state.cacheCleared,
+            onClear = onClearCache,
+        )
     }
 }
+
+/** 下载缓存清理入口：一行灰字，不弹确认框。 */
+@Composable
+private fun CacheRow(
+    cacheBytes: Long,
+    clearedBytes: Long?,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        TextButton(onClick = onClear) {
+            val text =
+                if (clearedBytes != null) {
+                    "已清理 ${formatBytes(clearedBytes)}"
+                } else {
+                    "清除下载缓存（${formatBytes(cacheBytes)}）"
+                }
+            Text(text = text, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** 缓存大小的简短展示：B / KB / MB。 */
+private fun formatBytes(bytes: Long): String =
+    when {
+        bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> "${bytes / 1024} KB"
+        else -> "$bytes B"
+    }
 
 @Composable
 private fun SourceItem(

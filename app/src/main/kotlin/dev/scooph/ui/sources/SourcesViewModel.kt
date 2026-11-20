@@ -26,6 +26,10 @@ data class SourcesUiState(
     val sources: List<SourceRow> = emptyList(),
     val input: String = "",
     val error: String? = null,
+    /** 下载缓存占用的字节数。 */
+    val cacheBytes: Long = 0L,
+    /** 最近一次清理释放的字节数；null 表示这次进入页面还没清理过。 */
+    val cacheCleared: Long? = null,
 )
 
 /** 来源页的数据接口，便于单测。 */
@@ -38,6 +42,12 @@ interface SourcesRepository {
     suspend fun remove(url: String)
 
     suspend fun sync(url: String)
+
+    /** 当前下载缓存占用的字节数。 */
+    suspend fun cacheSize(): Long
+
+    /** 清空下载缓存，返回释放的字节数。 */
+    suspend fun clearCache(): Long
 }
 
 /**
@@ -57,6 +67,23 @@ class SourcesViewModel(
 
     init {
         load()
+        refreshCacheSize()
+    }
+
+    /** 清理下载缓存，并在页面上显示释放了多少。 */
+    fun clearCache() {
+        workScope.launch {
+            val freed = runCatching { repository.clearCache() }.getOrDefault(0L)
+            _state.value = _state.value.copy(cacheBytes = 0L, cacheCleared = freed)
+        }
+    }
+
+    private fun refreshCacheSize() {
+        workScope.launch {
+            runCatching { repository.cacheSize() }
+                .getOrNull()
+                ?.let { size -> _state.value = _state.value.copy(cacheBytes = size) }
+        }
     }
 
     fun load() {
