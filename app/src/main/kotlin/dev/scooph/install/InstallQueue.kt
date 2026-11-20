@@ -79,6 +79,7 @@ class InstallQueue(
                     when (outcome) {
                         UpdateOutcome.Success -> setState(packageName, QueueState.Done)
                         UpdateOutcome.Cancelled -> setState(packageName, QueueState.Skipped("已取消"))
+                        is UpdateOutcome.Skipped -> setState(packageName, QueueState.Skipped(outcome.reason))
                         is UpdateOutcome.Failed ->
                             if (outcome.reason == SIGNATURE_CHANGED) {
                                 // 队列暂停：剩下的人还没开始，保持 Waiting。

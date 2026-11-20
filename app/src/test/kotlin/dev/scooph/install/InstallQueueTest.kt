@@ -77,6 +77,18 @@ class InstallQueueTest {
     }
 
     @Test
+    fun `a skipped outcome is reported as skipped`() {
+        val queue = queue(mutableListOf(), listOf(UpdateOutcome.Skipped("该应用为分包安装，暂不支持")))
+
+        queue.start(listOf("com.a"))
+
+        assertEquals(
+            listOf(QueueItem("com.a", QueueState.Skipped("该应用为分包安装，暂不支持"))),
+            queue.items.value,
+        )
+    }
+
+    @Test
     fun `items are downloading while their update is in flight`() {
         lateinit var queue: InstallQueue
         var observed: List<QueueState> = emptyList()

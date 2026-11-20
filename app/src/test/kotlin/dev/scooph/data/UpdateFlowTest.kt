@@ -135,6 +135,24 @@ class UpdateFlowTest {
         assertEquals(7000L, daos.tracked.get(PKG)!!.installedVersionCode)
     }
 
+    @Test
+    fun `split-installed app is skipped without downloading`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        val installer = FakeInstaller(InstallOutcome.Success)
+        val repo =
+            repository(
+                engine = FakeEngine(fetchedSHA = ENTRY_SHA),
+                installer = installer,
+                scanner = FakeScanner(installedVersionCode = 6804, hasSplits = true),
+            )
+
+        val outcome = repo.updateOne(PKG)
+
+        assertEquals(UpdateOutcome.Skipped("该应用为分包安装，暂不支持"), outcome)
+        assertFalse(installer.called)
+        assertEquals("FOLLOW", daos.tracked.get(PKG)!!.policy)
+    }
+
     private fun repository(
         engine: EngineGateway,
         installer: Installer,
@@ -220,7 +238,10 @@ class UpdateFlowTest {
         }
     }
 
-    private class FakeScanner(private val installedVersionCode: Long? = null) : PackageScanner {
+    private class FakeScanner(
+        private val installedVersionCode: Long? = null,
+        private val hasSplits: Boolean = false,
+    ) : PackageScanner {
         override suspend fun scan(): List<InstalledApp> =
             installedVersionCode?.let {
                 listOf(
@@ -228,7 +249,7 @@ class UpdateFlowTest {
                         packageName = PKG,
                         versionCode = it,
                         signature = "anchor",
-                        hasSplits = false,
+                        hasSplits = hasSplits,
                         label = "Example",
                     ),
                 )

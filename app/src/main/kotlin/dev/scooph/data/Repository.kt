@@ -55,6 +55,9 @@ sealed interface UpdateOutcome {
     /** 用户在系统确认框里取消：这次不装，不落状态。 */
     data object Cancelled : UpdateOutcome
 
+    /** 明确跳过（例如分包安装）：原因写清楚，队列继续下一项。 */
+    data class Skipped(val reason: String) : UpdateOutcome
+
     data class Failed(val reason: String) : UpdateOutcome
 }
 
@@ -302,6 +305,11 @@ class Repository(
             val entries = entryDao.observeAll().first().filter { it.packageName == packageName }
             val entry = resolveEntry(packageName, entries, sources, tracked.installedVersionCode)
                 ?: return@withContext UpdateOutcome.Failed("没有可用来源")
+
+            // spec §10.3：分包安装的应用不能用单 APK 覆盖，直接跳过并给原因。
+            if (scanner.scan().firstOrNull { it.packageName == packageName }?.hasSplits == true) {
+                return@withContext UpdateOutcome.Skipped(SPLIT_UNSUPPORTED)
+            }
 
             // 用户点「接受并更新」时不再比对旧锚点，装好后用新 APK 的指纹重设锚。
             val anchor = if (allowSignatureChange) null else tracked.signature
@@ -666,5 +674,6 @@ class Repository(
         const val STATUS_ERROR = "ERROR"
         const val STATUS_PENDING = "PENDING"
         const val SIGNATURE_CHANGED = "签名已变更"
+        const val SPLIT_UNSUPPORTED = "该应用为分包安装，暂不支持"
     }
 }

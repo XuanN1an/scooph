@@ -173,6 +173,14 @@ private fun DetailContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
+                is UpdateOutcome.Skipped ->
+                    Text(
+                        text = outcome.reason,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
                 else -> Unit
             }
         }
