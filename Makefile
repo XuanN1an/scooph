@@ -40,17 +40,32 @@ GO_ENV    := GOMODCACHE="$(TOOLCHAIN)/go-modcache" GOCACHE="$(TOOLCHAIN)/go-cach
 GOBIN_DIR := $(TOOLCHAIN)/gobin
 endif
 
-.PHONY: engine apk check gofmt-check engine-test app-check
+# gomobile 可能在 PATH，也可能只装在仓库内 GOBIN：优先用绝对路径，避免 bash 里找不到。
+X_MOBILE_VERSION := $(shell sed -n 's/.*golang.org\/x\/mobile \(v[^ ]*\).*/\1/p' engine/go.mod)
+ifeq ($(OS),Windows_NT)
+GOMOBILE_BIN := $(or $(wildcard $(GOBIN_DIR)/gomobile.exe),$(wildcard $(GOBIN_DIR)/gomobile),$(GOMOBILE))
+else
+GOMOBILE_BIN := $(or $(wildcard $(GOBIN_DIR)/gomobile),$(GOMOBILE))
+endif
+
+.PHONY: tools engine apk check gofmt-check engine-test app-check
+
+tools:
+	@echo "==> make tools: gomobile@$(X_MOBILE_VERSION) -> $(GOBIN_DIR)"
+	@test -n "$(X_MOBILE_VERSION)" || { echo "错误：读不到 engine/go.mod 里的 golang.org/x/mobile 版本" >&2; exit 1; }
+	@cd engine && $(GO_ENV) $(GO) install golang.org/x/mobile/cmd/gomobile@$(X_MOBILE_VERSION)
 
 engine:
 	@echo "==> make engine: gomobile bind -> $(ENGINE_AAR)"
 	@test -n "$(ANDROID_HOME)" || { echo "错误：ANDROID_HOME 为空，且 local.properties 里没有 sdk.dir" >&2; exit 1; }
 	@test -n "$(ANDROID_NDK_HOME)" || { echo "错误：未找到 NDK，请安装 SDK ndk 或设置 ANDROID_NDK_HOME" >&2; exit 1; }
+	@if ! command -v "$(GOMOBILE_BIN)" >/dev/null 2>&1 && [ ! -x "$(GOMOBILE_BIN)" ]; then \
+		echo "错误：找不到 gomobile。先运行 make tools，或 export PATH=\"$(GOBIN_DIR):\$$PATH\"" >&2; exit 1; fi
 	@cd engine && mkdir -p build && \
 		export PATH="$(GOBIN_DIR):$$PATH" && \
 		export ANDROID_HOME="$(ANDROID_HOME)" ANDROID_SDK_ROOT="$(ANDROID_HOME)" ANDROID_NDK_HOME="$(ANDROID_NDK_HOME)" && \
-		$(GO_ENV) $(GOMOBILE) init && \
-		$(GO_ENV) $(GOMOBILE) bind -target=android -androidapi $(ANDROID_API) -javapkg=dev.scooph.engine -o build/scooph-engine.aar ./api
+		$(GO_ENV) "$(GOMOBILE_BIN)" init && \
+		$(GO_ENV) "$(GOMOBILE_BIN)" bind -target=android -androidapi $(ANDROID_API) -javapkg=dev.scooph.engine -o build/scooph-engine.aar ./api
 	@ls -l $(ENGINE_AAR)
 
 apk: engine
