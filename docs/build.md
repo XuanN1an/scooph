@@ -74,7 +74,7 @@ SCOOPH_ROOM_TESTS=1 ./gradlew :app:testDebugUnitTest   # 需要真 SQLite 测试
 | --- | --- |
 | `gomobile: command not found` | `make tools`；或 `export PATH="<仓库>/.toolchain/gobin:$PATH"` |
 | `gomobile.exe: mkdir C:\...\Temp\gomobile-work-...: Access is denied` | gomobile 用 `TMP/TEMP` 建工作目录；Makefile 已把 `TMP/TEMP/GOTMPDIR` 都指向 `.toolchain/tmp`，重跑 `make engine` 即可 |
-| `gomobile.exe: go install ... failed` / `go: creating work dir ... Access is denied` | `make engine` 已把 `GOTMPDIR` 指到 `.toolchain/tmp` 并自动创建；仍失败就 `make tools` 预装 gobind/gomobile |
+| `gomobile.exe: gobind was not found` | gomobile 用 `exec.LookPath("gobind")` 找工具；Makefile 已用 `cygpath` 把 GOBIN 转成 POSIX 形式加进 PATH，并补 `PATHEXT`。仍失败就 `make tools` 预装 gobind |
 | `process_begin: CreateProcess(NULL, sed ...)` | 旧 Makefile 用 sed 解析版本；已改为固定 `X_MOBILE_VERSION`，重新拉取即可 |
 | `Unresolved reference: Api/Engine` | AAR 缺失或过期：`make engine` |
 | NDK 相关报错 | 安装 SDK `ndk`，或设置 `ANDROID_NDK_HOME` |

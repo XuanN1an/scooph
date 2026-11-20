@@ -70,7 +70,9 @@ engine:
 		echo "错误：找不到 gomobile。先运行 make tools，或 export PATH=\"$(GOBIN_DIR):\$$PATH\"" >&2; exit 1; fi
 	@mkdir -p "$(TOOLCHAIN_TMP)"
 	@cd engine && mkdir -p build && \
-		export PATH="$(GOBIN_DIR):$$PATH" && \
+		GOBIN_POSIX="$$(cygpath -u "$(GOBIN_DIR)" 2>/dev/null || echo "$(GOBIN_DIR)")" && \
+		export PATH="$$GOBIN_POSIX:$$PATH" && \
+		export PATHEXT="$${PATHEXT:-.COM;.EXE;.BAT;.CMD}" && \
 		export ANDROID_HOME="$(ANDROID_HOME)" ANDROID_SDK_ROOT="$(ANDROID_HOME)" ANDROID_NDK_HOME="$(ANDROID_NDK_HOME)" && \
 		$(GO_ENV) "$(GOMOBILE_BIN)" init && \
 		$(GO_ENV) "$(GOMOBILE_BIN)" bind -target=android -androidapi $(ANDROID_API) -javapkg=dev.scooph.engine -o build/scooph-engine.aar ./api
