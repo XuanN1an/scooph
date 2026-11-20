@@ -40,7 +40,8 @@ class ScoophApp : Application() {
             engine = EngineFacade(File(filesDir, "engine")),
             scanner = AndroidPackageScanner(packageManager),
             installer = AndroidInstaller(this),
-            downloadsDir = File(filesDir, "engine/downloads"),
+            // 下载缓存放 cacheDir：系统「清除缓存」就能回收，不占 filesDir。
+            downloadsDir = File(cacheDir, "engine/downloads"),
         )
     }
 
@@ -63,6 +64,8 @@ class ScoophApp : Application() {
         ApkInspector.init(packageManager)
         appScope.launch {
             try {
+                // 旧版本的下载目录在 filesDir 下，迁移到 cacheDir 后顺手删掉。
+                File(filesDir, "engine/downloads").deleteRecursively()
                 repository.cleanupDownloads()
                 repository.ensureDefaultSource()
             } catch (e: CancellationException) {
