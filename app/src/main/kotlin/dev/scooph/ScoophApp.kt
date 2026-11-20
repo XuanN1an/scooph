@@ -51,8 +51,8 @@ class ScoophApp : Application() {
      */
     val installQueue: InstallQueue by lazy {
         InstallQueue(appScope) { packageName, onProgress ->
-            val outcome = repository.updateOne(packageName, onProgress)
-            Log.i(TAG, "updateOne $packageName -> $outcome")
+            val outcome = repository.installOrUpdate(packageName, onProgress)
+            Log.i(TAG, "installOrUpdate $packageName -> $outcome")
             outcome
         }
     }

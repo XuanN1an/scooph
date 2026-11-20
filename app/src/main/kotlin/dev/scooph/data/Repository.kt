@@ -330,6 +330,17 @@ class Repository(
     override suspend fun update(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome =
         updateOne(packageName, onProgress)
 
+    /** 队列入口：没有 tracked 记录的新应用走首次安装，其余走更新。 */
+    suspend fun installOrUpdate(
+        packageName: String,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+    ): UpdateOutcome =
+        if (trackedDao.get(packageName) == null) {
+            installNew(packageName, onProgress)
+        } else {
+            updateOne(packageName, onProgress)
+        }
+
     /**
      * 从条目页首次安装一个新应用（计划 Task 24）。
      *

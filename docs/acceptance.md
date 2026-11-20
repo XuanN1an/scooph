@@ -60,7 +60,7 @@
 | 单个更新 | 通过 | 详情页「更新到 0.1.1」→ 下载 49.1MB → ColorOS 二次确认 → 安装 → 重启后「已是最新」；`tracked.installedVersionCode` 从 1 变 2，签名锚点保留 |
 | 一键更新 | 通过 | 手动点「全部更新」后，Kazumi（2.4.2→2.4.4）与 Scooph（→0.1.5）都装好；重启后主屏「已是最新 · 2」，两行显示 2.4.4 / 0.1.5，DB 与 entries 一致。ColorOS 安装引导需要人工确认；队列最后一项是 Scooph 自己时自更新会重启进程，汇总通知未观察到（已知限制） |
 | 签名与分包 | 未覆盖 | 需要构造签名变更/分包条目；签名比对逻辑由单测覆盖 |
-| 条目页与首次安装 | 部分通过 | 来源页 → 条目页、搜索过滤（`zzz` 显示空状态、清空恢复）、已安装显示 `0.1.1` 均正常；「安装本机没有的应用」未覆盖 |
+| 条目页与首次安装 | 通过 | 用第三方 APK 仓库跟踪 JMComic（`com.a7m3p9xv.t6qk2z8.app`，2.1.14，来自 `hect0x7/JMComic-APK`）：条目页搜索 → 点未安装行 → 下载 5.0MB → ColorOS 引导 → 装好；未跳详情页。装完 `tracked` 自动建成 `FOLLOW` 并写入首次签名锚，重启后主屏出现「JMComic · 已装好」。OEM 回执仍为 `ABORTED`，由版本复核兜底判成功。条目页已安装标记要重新进入页面才刷新（已知小问题） |
 | 深色模式 | 通过 | `cmd uimode night yes/no` 下主屏、详情页、来源页、条目页均可正常渲染 |
 
 ### 已修复的验收缺陷
@@ -69,3 +69,4 @@
 2. **安装被卡在「等待用户确认」**：`PackageInstaller` 返回 `STATUS_PENDING_USER_ACTION` 时，需要用 `EXTRA_INTENT` 拉起系统确认界面；原实现把它当失败返回。现在会拉起确认页，并等同一个 PendingIntent 的最终结果（10 分钟超时）。
 3. **更新过程无反馈**：详情页现在显示「更新中… / 正在下载 n%」以及失败原因；`logcat -s ScoophUpdate` 会记录最终结果。
 4. **ColorOS 接管安装会话导致误判「已取消」**：OEM 安装引导页会自行完成安装，但向 `PackageInstaller` 的 PendingIntent 回 `STATUS_FAILURE_ABORTED`。修复后，安装回执非成功时再按本机实际版本核对一次：版本已达目标就按成功写回，避免「明明装好了却显示取消」。
+5. **条目页安装新应用走错管道**：点击未安装行后，服务队列调用 `updateOne`，而新应用没有 `tracked` 记录会直接失败。新增 `Repository.installOrUpdate`：没有追踪记录走 `installNew`，有则走 `updateOne`；队列入口统一用它。

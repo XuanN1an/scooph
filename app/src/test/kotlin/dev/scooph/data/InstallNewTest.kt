@@ -46,6 +46,17 @@ class InstallNewTest {
     }
 
     @Test
+    fun `installOrUpdate routes an untracked package to first install`() = runBlocking {
+        seedEntry()
+        val repo = repository(installer = FakeInstaller(InstallOutcome.Success))
+
+        val outcome = repo.installOrUpdate(PKG)
+
+        assertEquals(UpdateOutcome.Success, outcome)
+        assertEquals("FOLLOW", daos.tracked.get(PKG)!!.policy)
+    }
+
+    @Test
     fun `a failed install does not create tracked`() = runBlocking {
         seedEntry()
         val repo = repository(installer = FakeInstaller(InstallOutcome.Failed("INSTALL_FAILED_INVALID_APK")))
