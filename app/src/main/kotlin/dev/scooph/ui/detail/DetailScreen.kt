@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.scooph.data.UpdateOutcome
 import dev.scooph.domain.DerivedState
 import dev.scooph.domain.Policy
 
@@ -40,7 +41,6 @@ import dev.scooph.domain.Policy
 fun DetailScreen(
     viewModel: DetailViewModel,
     onBack: () -> Unit,
-    onUpdateClick: (String) -> Unit = {},
     onAcceptAndUpdate: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
@@ -48,7 +48,7 @@ fun DetailScreen(
     DetailContent(
         state = state,
         onBack = onBack,
-        onUpdateClick = { onUpdateClick(state.packageName) },
+        onUpdateClick = viewModel::update,
         onAcceptAndUpdate = { onAcceptAndUpdate(state.packageName) },
         onPolicySelected = viewModel::selectPolicy,
     )
@@ -132,11 +132,49 @@ private fun DetailContent(
             OutlinedButton(
                 onClick = onUpdateClick,
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !state.updating,
                 border = BorderStroke(1.dp, accent),
                 shape = RoundedCornerShape(12.dp),
             ) {
                 val target = state.entryVersionName.ifBlank { "最新" }
-                Text(text = "更新到 $target", color = accent, fontSize = 15.sp)
+                Text(text = if (state.updating) "更新中…" else "更新到 $target", color = accent, fontSize = 15.sp)
+            }
+        }
+
+        // 更新过程与结果就地反馈：不跳页、不弹自己的对话框，失败原因直接写在按钮下面。
+        if (state.updating) {
+            Spacer(Modifier.height(10.dp))
+            val percent =
+                if (state.progressTotal > 0) {
+                    ((state.progressDone * 100) / state.progressTotal).toInt()
+                } else {
+                    null
+                }
+            Text(
+                text = percent?.let { "正在下载 $it%" } ?: "正在下载",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            when (val outcome = state.lastOutcome) {
+                is UpdateOutcome.Failed ->
+                    Text(
+                        text = outcome.reason,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+
+                UpdateOutcome.Cancelled ->
+                    Text(
+                        text = "已取消",
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                else -> Unit
             }
         }
 

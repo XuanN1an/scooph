@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -31,6 +32,9 @@ class AndroidInstaller(private val context: Context) : Installer {
     private companion object {
         /** 系统回执的 action；Android 没有公开常量，自己定一个并写成显式包名。 */
         const val ACTION_INSTALL_COMMIT = "dev.scooph.action.INSTALL_COMMIT"
+
+        /** 用户确认可能很久，但不能无限等：10 分钟后按超时处理。 */
+        const val INSTALL_TIMEOUT_MS = 10 * 60 * 1000L
     }
 
     override suspend fun install(apk: File, packageName: String): InstallOutcome {
@@ -51,7 +55,8 @@ class AndroidInstaller(private val context: Context) : Installer {
         return try {
             installer.openSession(sessionId).use { session ->
                 writeApk(session, apk)
-                awaitCommit(session, sessionId)
+                withTimeoutOrNull(INSTALL_TIMEOUT_MS) { awaitCommit(session, sessionId) }
+                    ?: InstallOutcome.Failed("安装超时")
             }
         } catch (e: CancellationException) {
             throw e
@@ -71,6 +76,18 @@ class AndroidInstaller(private val context: Context) : Installer {
         }
     }
 
+    private fun launchConfirmIntent(intent: Intent) {
+        val confirm =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_INTENT)
+            } ?: return
+        confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(confirm) }
+    }
+
     private suspend fun awaitCommit(
         session: PackageInstaller.Session,
         sessionId: Int,
@@ -80,13 +97,19 @@ class AndroidInstaller(private val context: Context) : Installer {
         val receiver =
             object : BroadcastReceiver() {
                 override fun onReceive(receiverContext: Context, intent: Intent) {
-                    if (!finished.compareAndSet(false, true)) return
-                    runCatching { receiverContext.unregisterReceiver(this) }
                     val status =
                         intent.getIntExtra(
                             PackageInstaller.EXTRA_STATUS,
                             PackageInstaller.STATUS_FAILURE,
                         )
+                    if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                        // 系统把安装确认界面放在 EXTRA_INTENT 里，要我们拉起；
+                        // 拉起后继续等同一个 PendingIntent 发来最终结果。
+                        launchConfirmIntent(intent)
+                        return
+                    }
+                    if (!finished.compareAndSet(false, true)) return
+                    runCatching { receiverContext.unregisterReceiver(this) }
                     val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
                     continuation.resume(toOutcome(status, message))
                 }

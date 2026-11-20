@@ -1,6 +1,7 @@
 package dev.scooph.ui.detail
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -117,6 +118,7 @@ class DetailViewModel(
                     UpdateOutcome.Failed(e.message ?: "更新失败")
                 }
             _state.value = _state.value.copy(updating = false, lastOutcome = outcome)
+            Log.i(TAG, "update $packageName -> $outcome")
             runCatching { repository.load(packageName) }
                 .getOrNull()
                 ?.let { fresh -> _state.value = fresh.copy(lastOutcome = outcome) }
@@ -124,6 +126,8 @@ class DetailViewModel(
     }
 
     companion object {
+        private const val TAG = "ScoophUpdate"
+
         fun factory(application: Application, packageName: String): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
