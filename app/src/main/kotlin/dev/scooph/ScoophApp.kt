@@ -63,6 +63,7 @@ class ScoophApp : Application() {
         ApkInspector.init(packageManager)
         appScope.launch {
             try {
+                repository.cleanupDownloads()
                 repository.ensureDefaultSource()
             } catch (e: CancellationException) {
                 throw e

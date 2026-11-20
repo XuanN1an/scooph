@@ -31,7 +31,7 @@ import java.io.File
 class UpdateFlowTest {
 
     private val daos = FakeDaos()
-    private val downloads = File(System.getProperty("java.io.tmpdir"), "scooph-update-flow-test")
+    private val downloads = File(System.getProperty("java.io.tmpdir"), "scooph-update-flow-test-${System.nanoTime()}")
 
     @Test
     fun `hash mismatch fails without touching tracked`() = runBlocking {
@@ -153,6 +153,41 @@ class UpdateFlowTest {
         assertEquals("FOLLOW", daos.tracked.get(PKG)!!.policy)
     }
 
+    @Test
+    fun `a cached verified apk is reused instead of downloading again`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        val firstEngine = FakeEngine(fetchedSHA = ENTRY_SHA)
+        repository(firstEngine, FakeInstaller(InstallOutcome.Success)).updateOne(PKG)
+        assertEquals(1, firstEngine.fetchCalls)
+
+        // 模拟上次被进程重启留下的完整包（成功安装后正常会删除）。
+        File(downloads, "$PKG-7000.apk").apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(1, 2, 3))
+        }
+        val secondEngine = FakeEngine(fetchedSHA = ENTRY_SHA)
+        val outcome = repository(secondEngine, FakeInstaller(InstallOutcome.Success)).updateOne(PKG)
+
+        assertEquals(UpdateOutcome.Success, outcome)
+        assertEquals(0, secondEngine.fetchCalls)
+    }
+
+    @Test
+    fun `signature mismatch keeps the apk and accept reuses it`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        val firstEngine = FakeEngine(fetchedSHA = ENTRY_SHA)
+        repository(firstEngine, FakeInstaller(InstallOutcome.Success), fingerprint = { "different" }).updateOne(PKG)
+        assertTrue(File(downloads, "$PKG-7000.apk").isFile)
+
+        val secondEngine = FakeEngine(fetchedSHA = ENTRY_SHA)
+        val outcome =
+            repository(secondEngine, FakeInstaller(InstallOutcome.Success), fingerprint = { "new-anchor" })
+                .acceptAndUpdate(PKG) { _, _ -> }
+
+        assertEquals(UpdateOutcome.Success, outcome)
+        assertEquals(0, secondEngine.fetchCalls)
+    }
+
     private fun repository(
         engine: EngineGateway,
         installer: Installer,
@@ -191,7 +226,7 @@ class UpdateFlowTest {
                     versionName = "7.0",
                     apkUrl = "https://example.com/app.apk",
                     sha256 = ENTRY_SHA,
-                    size = 1,
+                    size = 3,
                     notes = null,
                 ),
             ),
@@ -211,6 +246,9 @@ class UpdateFlowTest {
     }
 
     private class FakeEngine(private val fetchedSHA: String) : EngineGateway {
+        var fetchCalls = 0
+            private set
+
         override fun version(): String = "test"
 
         override fun sync(url: String): SyncResultDto =
@@ -221,6 +259,7 @@ class UpdateFlowTest {
         override fun plan(request: PlanRequestDto): PlanResultDto = PlanResultDto(items = emptyList())
 
         override fun fetch(url: String, destPath: String, wantSHA256: String): FetchResultDto {
+            fetchCalls++
             val file = File(destPath)
             file.parentFile?.mkdirs()
             file.writeBytes(byteArrayOf(1, 2, 3))
@@ -259,6 +298,6 @@ class UpdateFlowTest {
     private companion object {
         const val PKG = "com.example.app"
         const val SOURCE_URL = "https://example.com/bucket-a.git"
-        const val ENTRY_SHA = "entry-sha"
+        const val ENTRY_SHA = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"
     }
 }

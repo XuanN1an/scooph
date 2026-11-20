@@ -12,6 +12,7 @@ import dev.scooph.domain.derive
 import dev.scooph.engine.ApkDto
 import dev.scooph.engine.EngineGateway
 import dev.scooph.engine.EntryDto
+import dev.scooph.engine.FetchResultDto
 import dev.scooph.engine.InstalledSnapshotDto
 import dev.scooph.engine.PlanCandidateDto
 import dev.scooph.engine.PlanItemDto
@@ -33,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * 主屏一次刷新所需的数据来源。
@@ -340,7 +342,10 @@ class Repository(
                 markInstalled(tracked, entry, ready.fingerprint)
                 outcome = UpdateOutcome.Success
             }
-            ready.apk.delete()
+            // 签名变更时保留 APK 给「接受并更新」复用；其余结束即删。
+            if (outcome != UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
+                ready.apk.delete()
+            }
             outcome
         }
 
@@ -401,7 +406,10 @@ class Repository(
                 createTracked(packageName, entry, ready.fingerprint)
                 outcome = UpdateOutcome.Success
             }
-            ready.apk.delete()
+            // 签名变更时保留 APK 给「接受并更新」复用；其余结束即删。
+            if (outcome != UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
+                ready.apk.delete()
+            }
             outcome
         }
 
@@ -469,22 +477,33 @@ class Repository(
     ): Prepared {
         val dest = File(downloadsDir, "$packageName-${entry.versionCode}.apk")
         dest.parentFile?.mkdirs()
+
+        // 同一个条目已经下过并且校验通过时直接复用，不重复下载：
+        // 「签名变更 → 接受并更新」和失败重试是最常见的原因。
+        val cached =
+            dest.takeIf { it.isFile && it.length() == entry.size }?.takeIf {
+                runCatching { sha256Of(it).equals(entry.sha256, ignoreCase = true) }.getOrDefault(false)
+            }
         val fetched =
-            try {
-                engine.fetch(entry.apkUrl, dest.absolutePath, entry.sha256)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val message = e.message.orEmpty()
-                return Prepared.Failure(
-                    UpdateOutcome.Failed(
-                        if (message.contains("sha256", ignoreCase = true)) {
-                            "sha256 不一致"
-                        } else {
-                            message.ifBlank { "下载失败" }
-                        },
-                    ),
-                )
+            if (cached != null) {
+                FetchResultDto(path = cached.absolutePath, size = cached.length(), sha256 = entry.sha256)
+            } else {
+                try {
+                    engine.fetch(entry.apkUrl, dest.absolutePath, entry.sha256)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val message = e.message.orEmpty()
+                    return Prepared.Failure(
+                        UpdateOutcome.Failed(
+                            if (message.contains("sha256", ignoreCase = true)) {
+                                "sha256 不一致"
+                            } else {
+                                message.ifBlank { "下载失败" }
+                            },
+                        ),
+                    )
+                }
             }
         onProgress(fetched.size, fetched.size)
 
@@ -501,11 +520,22 @@ class Repository(
             return Prepared.Failure(UpdateOutcome.Failed("无法读取签名"))
         }
         if (!anchor.isNullOrBlank() && !anchor.equals(actual, ignoreCase = true)) {
-            apk.delete()
+            // 保留文件：用户点「接受并更新」时可以直接复用，不用再下一次。
             return Prepared.Failure(UpdateOutcome.Failed("签名已变更"))
         }
         return Prepared.Ready(apk, actual)
     }
+
+    /** 删除下载缓存：默认清掉 7 天前的文件（含半截 .part）。 */
+    suspend fun cleanupDownloads(maxAgeMs: Long = DEFAULT_CACHE_AGE_MS) =
+        withContext(Dispatchers.IO) {
+            val cutoff = System.currentTimeMillis() - maxAgeMs
+            downloadsDir.listFiles()?.forEach { file ->
+                if (file.isFile && file.lastModified() < cutoff) {
+                    file.delete()
+                }
+            }
+        }
 
     /** 与 `Plan()` 相同的仲裁：版本最高，其次添加顺序，最后来源 id。 */
     private suspend fun resolveEntry(
@@ -675,5 +705,20 @@ class Repository(
         const val STATUS_PENDING = "PENDING"
         const val SIGNATURE_CHANGED = "签名已变更"
         const val SPLIT_UNSUPPORTED = "该应用为分包安装，暂不支持"
+        const val DEFAULT_CACHE_AGE_MS = 7L * 24 * 60 * 60 * 1000
     }
+}
+
+/** 计算文件的 sha256（小写十六进制），用于复用已下载的 APK。 */
+internal fun sha256Of(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().joinToString(separator = "") { "%02x".format(it) }
 }
