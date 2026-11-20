@@ -138,5 +138,10 @@ class DetailViewModelTest {
             packageName: String,
             onProgress: (Long, Long) -> Unit,
         ): UpdateOutcome = UpdateOutcome.Success
+
+        override suspend fun acceptAndUpdate(
+            packageName: String,
+            onProgress: (Long, Long) -> Unit,
+        ): UpdateOutcome = UpdateOutcome.Success
     }
 }

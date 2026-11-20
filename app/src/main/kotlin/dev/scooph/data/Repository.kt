@@ -291,6 +291,7 @@ class Repository(
     suspend fun updateOne(
         packageName: String,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
+        allowSignatureChange: Boolean = false,
     ): UpdateOutcome =
         withContext(Dispatchers.IO) {
             val installer =
@@ -302,8 +303,16 @@ class Repository(
             val entry = resolveEntry(packageName, entries, sources, tracked.installedVersionCode)
                 ?: return@withContext UpdateOutcome.Failed("没有可用来源")
 
-            val prepared = prepareApk(packageName, entry, tracked.signature, onProgress)
-            if (prepared is Prepared.Failure) return@withContext prepared.outcome
+            // 用户点「接受并更新」时不再比对旧锚点，装好后用新 APK 的指纹重设锚。
+            val anchor = if (allowSignatureChange) null else tracked.signature
+            val prepared = prepareApk(packageName, entry, anchor, onProgress)
+            if (prepared is Prepared.Failure) {
+                if (prepared.outcome == UpdateOutcome.Failed(SIGNATURE_CHANGED)) {
+                    // 记下来，详情页据此显示「接受并更新」。
+                    trackedDao.upsert(tracked.copy(lastError = SIGNATURE_CHANGED))
+                }
+                return@withContext prepared.outcome
+            }
             val ready = prepared as Prepared.Ready
 
             var outcome =
@@ -340,6 +349,12 @@ class Repository(
         } else {
             updateOne(packageName, onProgress)
         }
+
+    /** 用户接受新签名后继续更新：跳过锚点比对，成功后用新指纹重设锚。 */
+    override suspend fun acceptAndUpdate(
+        packageName: String,
+        onProgress: (Long, Long) -> Unit,
+    ): UpdateOutcome = updateOne(packageName, onProgress, allowSignatureChange = true)
 
     /**
      * 从条目页首次安装一个新应用（计划 Task 24）。
@@ -582,15 +597,22 @@ class Repository(
                         lastError = null,
                     )
                 } else {
+                    // 用户接受新签名并完成安装后，进程可能已被系统重启；这里用扫描到的
+                    // 实际签名把锚点补正，避免永远卡在「签名已变更」。
+                    val acceptedSignatureChange =
+                        current.lastError == SIGNATURE_CHANGED &&
+                            item.relation == "same" &&
+                            current.policy != Policy.UNTRACKED.name
                     current.copy(
                         installedVersionCode = item.installedVersionCode,
                         // spec §10.3：扫描即建锚；但 UNTRACKED 是墓碑，不为它补锚点。
                         signature =
-                            if (current.policy == Policy.UNTRACKED.name) {
-                                current.signature
-                            } else {
-                                current.signature ?: app.signature
+                            when {
+                                acceptedSignatureChange -> app.signature
+                                current.policy == Policy.UNTRACKED.name -> current.signature
+                                else -> current.signature ?: app.signature
                             },
+                        lastError = if (acceptedSignatureChange) null else current.lastError,
                         lastCheckedAt = now,
                     )
                 }
@@ -643,5 +665,6 @@ class Repository(
         const val STATUS_OK = "OK"
         const val STATUS_ERROR = "ERROR"
         const val STATUS_PENDING = "PENDING"
+        const val SIGNATURE_CHANGED = "签名已变更"
     }
 }

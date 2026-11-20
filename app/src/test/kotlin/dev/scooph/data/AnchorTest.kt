@@ -60,12 +60,30 @@ class AnchorTest {
         assertEquals("original", daos.tracked.get(PKG)!!.signature)
     }
 
-    private fun repository() = Repository(
+    @Test
+    fun `an accepted signature change heals the anchor after install`() = runBlocking {
+        seedSourceAndEntry()
+        seedTracked(policy = Policy.FOLLOW, signature = "old-anchor", lastError = "签名已变更")
+
+        repository(
+            engine = FakeEngine(relation = "same", installedVersionCode = 7000),
+            scanner = FakeScanner(signature = "new-anchor"),
+        ).refresh()
+
+        val tracked = daos.tracked.get(PKG)!!
+        assertEquals("new-anchor", tracked.signature)
+        assertNull(tracked.lastError)
+    }
+
+    private fun repository(
+        engine: EngineGateway = FakeEngine(),
+        scanner: PackageScanner = FakeScanner(),
+    ) = Repository(
         sourceDao = daos.sources,
         entryDao = daos.entries,
         trackedDao = daos.tracked,
-        engine = FakeEngine(),
-        scanner = FakeScanner(),
+        engine = engine,
+        scanner = scanner,
     )
 
     private suspend fun seedSourceAndEntry() {
@@ -96,7 +114,11 @@ class AnchorTest {
         )
     }
 
-    private suspend fun seedTracked(policy: Policy, signature: String?) {
+    private suspend fun seedTracked(
+        policy: Policy,
+        signature: String?,
+        lastError: String? = null,
+    ) {
         daos.tracked.upsert(
             TrackedEntity(
                 packageName = PKG,
@@ -106,12 +128,15 @@ class AnchorTest {
                 signature = signature,
                 installedAt = 1L,
                 lastCheckedAt = 1L,
-                lastError = null,
+                lastError = lastError,
             ),
         )
     }
 
-    private class FakeEngine : EngineGateway {
+    private class FakeEngine(
+        private val relation: String = "newer",
+        private val installedVersionCode: Long = 6804,
+    ) : EngineGateway {
         override fun version(): String = "test"
 
         override fun sync(url: String): SyncResultDto =
@@ -143,9 +168,9 @@ class AnchorTest {
                         PlanItemDto(
                             packageName = PKG,
                             name = "Example",
-                            relation = "newer",
+                            relation = relation,
                             entryVersionCode = 7000,
-                            installedVersionCode = 6804,
+                            installedVersionCode = installedVersionCode,
                             apkUrl = "https://example.com/app.apk",
                             sha256 = "0".repeat(64),
                             size = 1,
@@ -158,13 +183,15 @@ class AnchorTest {
             FetchResultDto(path = "", size = 0, sha256 = "")
     }
 
-    private class FakeScanner : PackageScanner {
+    private class FakeScanner(
+        private val signature: String? = SCANNED_SIGNATURE,
+    ) : PackageScanner {
         override suspend fun scan(): List<InstalledApp> =
             listOf(
                 InstalledApp(
                     packageName = PKG,
                     versionCode = 6804,
-                    signature = SCANNED_SIGNATURE,
+                    signature = signature,
                     hasSplits = false,
                     label = "Example",
                 ),

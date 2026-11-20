@@ -41,7 +41,6 @@ import dev.scooph.domain.Policy
 fun DetailScreen(
     viewModel: DetailViewModel,
     onBack: () -> Unit,
-    onAcceptAndUpdate: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(viewModel) { viewModel.load() }
@@ -49,7 +48,7 @@ fun DetailScreen(
         state = state,
         onBack = onBack,
         onUpdateClick = viewModel::update,
-        onAcceptAndUpdate = { onAcceptAndUpdate(state.packageName) },
+        onAcceptAndUpdate = viewModel::acceptAndUpdate,
         onPolicySelected = viewModel::selectPolicy,
     )
 }

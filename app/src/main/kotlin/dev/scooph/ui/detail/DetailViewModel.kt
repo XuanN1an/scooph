@@ -47,6 +47,9 @@ interface DetailRepository {
 
     /** 下载 + 校验 + 安装一个应用；进度回调给界面。 */
     suspend fun update(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome
+
+    /** 用户确认接受新签名后继续更新（跳过锚点比对）。 */
+    suspend fun acceptAndUpdate(packageName: String, onProgress: (Long, Long) -> Unit): UpdateOutcome
 }
 
 class DetailViewModel(
@@ -104,12 +107,21 @@ class DetailViewModel(
      * 界面自己的模态框不存在，系统确认框由 Android 弹。
      */
     fun update() {
+        launchUpdate { onProgress -> repository.update(packageName, onProgress) }
+    }
+
+    /** 用户点「接受并更新」：跳过锚点比对，装好后用新指纹重设锚。 */
+    fun acceptAndUpdate() {
+        launchUpdate { onProgress -> repository.acceptAndUpdate(packageName, onProgress) }
+    }
+
+    private fun launchUpdate(action: suspend ((Long, Long) -> Unit) -> UpdateOutcome) {
         if (_state.value.updating) return
         workScope.launch {
             _state.value = _state.value.copy(updating = true, progressDone = 0L, progressTotal = 0L, lastOutcome = null)
             val outcome =
                 try {
-                    repository.update(packageName) { done, total ->
+                    action { done, total ->
                         _state.value = _state.value.copy(progressDone = done, progressTotal = total)
                     }
                 } catch (e: CancellationException) {

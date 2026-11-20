@@ -17,6 +17,7 @@ import dev.scooph.scan.PackageScanner
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -61,6 +62,27 @@ class UpdateFlowTest {
         assertEquals(UpdateOutcome.Failed("签名已变更"), outcome)
         assertFalse(installer.called)
         assertEquals("anchor", daos.tracked.get(PKG)!!.signature)
+        assertEquals("签名已变更", daos.tracked.get(PKG)!!.lastError)
+    }
+
+    @Test
+    fun `accepting the new signature installs and re-anchors`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        val installer = FakeInstaller(InstallOutcome.Success)
+        val repo =
+            repository(
+                engine = FakeEngine(fetchedSHA = ENTRY_SHA),
+                installer = installer,
+                fingerprint = { "new-anchor" },
+            )
+
+        val outcome = repo.acceptAndUpdate(PKG) { _, _ -> }
+
+        assertEquals(UpdateOutcome.Success, outcome)
+        assertTrue(installer.called)
+        val tracked = daos.tracked.get(PKG)!!
+        assertEquals("new-anchor", tracked.signature)
+        assertNull(tracked.lastError)
     }
 
     @Test
