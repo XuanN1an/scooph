@@ -306,21 +306,10 @@ class Repository(
             if (prepared is Prepared.Failure) return@withContext prepared.outcome
             val ready = prepared as Prepared.Ready
 
-            val outcome =
+            var outcome =
                 when (val result = installer.install(ready.apk, packageName)) {
                     InstallOutcome.Success -> {
-                        val now = System.currentTimeMillis()
-                        trackedDao.upsert(
-                            tracked.copy(
-                                installedVersionCode = entry.versionCode,
-                                signature = ready.fingerprint,
-                                policy = Policy.FOLLOW.name,
-                                skipVersionCode = 0L,
-                                installedAt = now,
-                                lastCheckedAt = now,
-                                lastError = null,
-                            ),
-                        )
+                        markInstalled(tracked, entry, ready.fingerprint)
                         UpdateOutcome.Success
                     }
 
@@ -328,6 +317,12 @@ class Repository(
                     InstallOutcome.NeedsUserAction -> UpdateOutcome.Failed("等待用户确认")
                     is InstallOutcome.Failed -> UpdateOutcome.Failed(result.reason)
                 }
+            // ColorOS 等 OEM 接管安装会话时会回 ABORTED，但系统其实已经装好；
+            // 以本机实际版本为准，避免把成功报成「已取消」。
+            if (outcome !is UpdateOutcome.Success && appliedBySystem(packageName, entry.versionCode)) {
+                markInstalled(tracked, entry, ready.fingerprint)
+                outcome = UpdateOutcome.Success
+            }
             ready.apk.delete()
             outcome
         }
@@ -357,22 +352,10 @@ class Repository(
             if (prepared is Prepared.Failure) return@withContext prepared.outcome
             val ready = prepared as Prepared.Ready
 
-            val outcome =
+            var outcome =
                 when (val result = installer.install(ready.apk, packageName)) {
                     InstallOutcome.Success -> {
-                        val now = System.currentTimeMillis()
-                        trackedDao.upsert(
-                            TrackedEntity(
-                                packageName = packageName,
-                                policy = Policy.FOLLOW.name,
-                                skipVersionCode = 0L,
-                                installedVersionCode = entry.versionCode,
-                                signature = ready.fingerprint,
-                                installedAt = now,
-                                lastCheckedAt = now,
-                                lastError = null,
-                            ),
-                        )
+                        createTracked(packageName, entry, ready.fingerprint)
                         UpdateOutcome.Success
                     }
 
@@ -380,9 +363,62 @@ class Repository(
                     InstallOutcome.NeedsUserAction -> UpdateOutcome.Failed("等待用户确认")
                     is InstallOutcome.Failed -> UpdateOutcome.Failed(result.reason)
                 }
+            if (outcome !is UpdateOutcome.Success && appliedBySystem(packageName, entry.versionCode)) {
+                createTracked(packageName, entry, ready.fingerprint)
+                outcome = UpdateOutcome.Success
+            }
             ready.apk.delete()
             outcome
         }
+
+    /** 安装成功后写回版本、签名并恢复 `FOLLOW`。 */
+    private suspend fun markInstalled(
+        tracked: TrackedEntity,
+        entry: EntryEntity,
+        fingerprint: String,
+    ) {
+        val now = System.currentTimeMillis()
+        trackedDao.upsert(
+            tracked.copy(
+                installedVersionCode = entry.versionCode,
+                signature = fingerprint,
+                policy = Policy.FOLLOW.name,
+                skipVersionCode = 0L,
+                installedAt = now,
+                lastCheckedAt = now,
+                lastError = null,
+            ),
+        )
+    }
+
+    /** 首次安装成功后建立 tracked 与首次签名锚。 */
+    private suspend fun createTracked(
+        packageName: String,
+        entry: EntryEntity,
+        fingerprint: String,
+    ) {
+        val now = System.currentTimeMillis()
+        trackedDao.upsert(
+            TrackedEntity(
+                packageName = packageName,
+                policy = Policy.FOLLOW.name,
+                skipVersionCode = 0L,
+                installedVersionCode = entry.versionCode,
+                signature = fingerprint,
+                installedAt = now,
+                lastCheckedAt = now,
+                lastError = null,
+            ),
+        )
+    }
+
+    /** OEM 安装器接管会话时不回 SUCCESS，用本机实际版本兜底。 */
+    private suspend fun appliedBySystem(packageName: String, targetVersionCode: Long): Boolean =
+        scanner
+            .scan()
+            .firstOrNull { it.packageName == packageName }
+            ?.versionCode
+            ?.let { it >= targetVersionCode } == true
 
     /** 下载 + 校验 + 读签名的结果，供更新与首次安装共用。 */
     private sealed interface Prepared {

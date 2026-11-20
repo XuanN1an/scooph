@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -54,6 +55,7 @@ class InstallService : Service() {
 
         scope.launch {
             queue.items.collect { items ->
+                Log.i("ScoophQueue", items.joinToString { "${it.packageName}=${it.state}" })
                 if (items.isNotEmpty() && items.all { isTerminal(it.state) }) {
                     postSummary(items)
                     stopForeground(STOP_FOREGROUND_REMOVE)

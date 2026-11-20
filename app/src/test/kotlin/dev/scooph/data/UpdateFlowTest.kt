@@ -97,16 +97,33 @@ class UpdateFlowTest {
         assertTrue(installer.called)
     }
 
+    @Test
+    fun `an OEM-aborted install that actually landed counts as success`() = runBlocking {
+        seed(policy = Policy.FOLLOW)
+        val repo =
+            repository(
+                engine = FakeEngine(fetchedSHA = ENTRY_SHA),
+                installer = FakeInstaller(InstallOutcome.Cancelled),
+                scanner = FakeScanner(installedVersionCode = 7000),
+            )
+
+        val outcome = repo.updateOne(PKG)
+
+        assertEquals(UpdateOutcome.Success, outcome)
+        assertEquals(7000L, daos.tracked.get(PKG)!!.installedVersionCode)
+    }
+
     private fun repository(
         engine: EngineGateway,
         installer: Installer,
         fingerprint: (File) -> String = { "anchor" },
+        scanner: PackageScanner = FakeScanner(),
     ) = Repository(
         sourceDao = daos.sources,
         entryDao = daos.entries,
         trackedDao = daos.tracked,
         engine = engine,
-        scanner = FakeScanner(),
+        scanner = scanner,
         installer = installer,
         downloadsDir = downloads,
         apkFingerprint = fingerprint,
@@ -181,8 +198,19 @@ class UpdateFlowTest {
         }
     }
 
-    private class FakeScanner : PackageScanner {
-        override suspend fun scan(): List<InstalledApp> = emptyList()
+    private class FakeScanner(private val installedVersionCode: Long? = null) : PackageScanner {
+        override suspend fun scan(): List<InstalledApp> =
+            installedVersionCode?.let {
+                listOf(
+                    InstalledApp(
+                        packageName = PKG,
+                        versionCode = it,
+                        signature = "anchor",
+                        hasSplits = false,
+                        label = "Example",
+                    ),
+                )
+            }.orEmpty()
     }
 
     private companion object {

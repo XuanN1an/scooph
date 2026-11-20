@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -102,6 +103,7 @@ class AndroidInstaller(private val context: Context) : Installer {
                             PackageInstaller.EXTRA_STATUS,
                             PackageInstaller.STATUS_FAILURE,
                         )
+                    Log.i("ScoophInstall", "broadcast status=$status session=$sessionId")
                     if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                         // 系统把安装确认界面放在 EXTRA_INTENT 里，要我们拉起；
                         // 拉起后继续等同一个 PendingIntent 发来最终结果。
